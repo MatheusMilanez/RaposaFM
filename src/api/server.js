@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { config } from '../shared/config.js';
 import { startAmqp, closeAmqp } from '../shared/amqp.js';
@@ -50,4 +51,11 @@ async function start() {
   }
 }
 
-start();
+// Só sobe o servidor de verdade quando este arquivo é o entrypoint (node
+// src/api/server.js). Importar buildServer() em teste não deve ter esse
+// efeito colateral — sem essa guarda, todo teste abriria uma porta real
+// e tentaria conectar num RabbitMQ que não existe.
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMainModule) {
+  start();
+}

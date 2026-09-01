@@ -1,5 +1,7 @@
 # RaposaFM 🦊
 
+[![CI](https://github.com/MatheusMilanez/RaposaFM/actions/workflows/ci.yml/badge.svg)](https://github.com/MatheusMilanez/RaposaFM/actions/workflows/ci.yml)
+
 > Um despachante de webhooks assíncrono, leve e _self-hosted_, focado em confiabilidade, resiliência e alta performance.
 
 ---
