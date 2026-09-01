@@ -143,6 +143,23 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
 
 Deve responder `202 Accepted` com um `messageId`. Acompanhe a entrega em `docker compose logs worker -f`, ou inspecione as filas no painel do RabbitMQ em [http://localhost:15672](http://localhost:15672).
 
+### Variáveis de ambiente
+
+Todas em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória de verdade — o resto tem valor padrão.
+
+| Variável                     | Padrão                | Descrição                                                                                      |
+| ---------------------------- | --------------------- | ---------------------------------------------------------------------------------------------- |
+| `RABBITMQ_USER`              | `raposafm`            | Usuário administrador criado no container do RabbitMQ                                          |
+| `RABBITMQ_PASSWORD`          | — (obrigatória)       | Senha do RabbitMQ; sem valor fixo de propósito                                                 |
+| `RABBITMQ_URL`               | — (obrigatória)       | String de conexão AMQP usada pela API e pelo worker                                            |
+| `API_PORT`                   | `3000`                | Porta em que a API escuta                                                                      |
+| `ALLOW_PRIVATE_NETWORK_URLS` | `false`               | Libera webhook apontando pra IP privado/localhost — só para desenvolvimento, nunca em produção |
+| `WORKER_PREFETCH`            | `10`                  | Quantas mensagens cada worker processa em paralelo                                             |
+| `MAX_RETRIES`                | `5`                   | Tentativas totais antes de uma mensagem ir para a DLQ                                          |
+| `HTTP_TIMEOUT_MS`            | `5000`                | Timeout de cada tentativa de entrega ao destino                                                |
+| `RETRY_BACKOFF_MS`           | `60000,300000,900000` | Degraus do backoff exponencial (1min, 5min, 15min), em ms                                      |
+| `LOG_LEVEL`                  | `info`                | `debug` \| `info` \| `warn` \| `error`                                                         |
+
 ### Rodando fora do Docker (desenvolvimento)
 
 Com o RabbitMQ no ar (`docker compose up -d rabbitmq`), rode a API e o worker localmente com Node 18+:
