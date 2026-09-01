@@ -14,7 +14,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage"
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.e2e.config.js --runInBand"
   },
   "license": "MIT",
   "dependencies": {
@@ -24,11 +25,13 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testcontainers/rabbitmq": "^12.1.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.12.0",
     "jest": "^30.5.1",
     "prettier": "^3.9.6",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "testcontainers": "^12.1.0"
   }
 }

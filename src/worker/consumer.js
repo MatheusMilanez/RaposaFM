@@ -9,7 +9,10 @@ let channel = null;
 let consumerTag = null;
 let inFlight = 0;
 
-async function handleMessage(ch, msg) {
+// Exportada só para teste unitário (test/unit/consumer.test.js, com
+// channel fake e dispatch mockado) — o resto de consumer.js depende
+// demais da semântica real do amqplib pra valer a pena mockar.
+export async function handleMessage(ch, msg) {
   inFlight += 1;
   try {
     let message;
@@ -34,7 +37,7 @@ async function handleMessage(ch, msg) {
     if (decision.action === 'retry') {
       publishToWait(ch, message, result, decision);
     } else {
-      publishToDlq(ch, message, result, decision);
+      publishToDlq(ch, message, result, { attempt: decision.nextAttempt });
       logger.warn('worker: mensagem enviada para a DLQ', {
         messageId: message.messageId,
         motivo: decision.reason,

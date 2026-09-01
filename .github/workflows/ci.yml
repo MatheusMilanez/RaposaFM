@@ -42,3 +42,22 @@ jobs:
           name: coverage-report
           path: coverage/
           retention-days: 14
+
+  e2e:
+    name: Testes e2e (RabbitMQ real via Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes e2e
+        run: npm run test:e2e
