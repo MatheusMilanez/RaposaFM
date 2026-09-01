@@ -1,25 +1,57 @@
 import 'dotenv/config';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
+import { startAmqp, closeAmqp, isAmqpConnected } from '../shared/amqp.js';
+import { startConsumer, stopConsumer } from './consumer.js';
+
+let shuttingDown = false;
+
+async function waitUntilConnected() {
+  while (!isAmqpConnected() && !shuttingDown) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
 
 /**
- * Bootstrap do worker.
- *
- * Nesta etapa (M1) o processo apenas confirma que a configuração é
- * válida e fica de pé. O consumo da fila, o despacho HTTP e o
- * desligamento gracioso entram na M3 (Camada de Workers).
+ * Laço principal: assina a fila, espera o channel cair (conexão perdida)
+ * e retoma assim que reconectar. A reconexão da connection em si é
+ * responsabilidade do src/shared/amqp.js.
  */
+async function run() {
+  while (!shuttingDown) {
+    await waitUntilConnected();
+    if (shuttingDown) break;
+
+    try {
+      const { closed } = await startConsumer();
+      await closed;
+      if (!shuttingDown) {
+        logger.warn('worker: consumo interrompido, retomando assim que reconectar');
+      }
+    } catch (err) {
+      logger.error('worker: falha ao iniciar consumo, tentando de novo', { error: err.message });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`worker recebeu ${signal}, encerrando`);
+  await stopConsumer({ timeoutMs: 10000 });
+  await closeAmqp();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 logger.info('worker iniciado', {
   prefetch: config.worker.prefetch,
   maxRetries: config.worker.maxRetries,
+  httpTimeoutMs: config.worker.httpTimeoutMs,
 });
 
-process.on('SIGTERM', () => {
-  logger.info('worker recebeu SIGTERM, encerrando');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  logger.info('worker recebeu SIGINT, encerrando');
-  process.exit(0);
-});
+startAmqp();
+run();

@@ -2,6 +2,13 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: raposafm-rabbitmq
+    # O RabbitMQ guarda o banco (mnesia) em um diretório por hostname do
+    # node. Sem isso fixo, cada recriação do container (docker compose
+    # down + up) sorteia um hostname novo e o node "esquece" tudo que
+    # tinha antes — mesmo com o volume intacto. Descoberto na prática:
+    # 4 bancos órfãos se acumularam no volume ao longo de um único dia
+    # de testes, cada um do tamanho de um container recriado.
+    hostname: raposafm-rabbitmq
     restart: unless-stopped
     ports:
       - '5672:5672' # AMQP
