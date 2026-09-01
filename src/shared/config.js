@@ -43,11 +43,21 @@ function optionalIntList(name, fallback) {
   return parsed;
 }
 
+function optionalBool(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  return raw.trim().toLowerCase() === 'true';
+}
+
 export const config = Object.freeze({
   rabbitmqUrl: required('RABBITMQ_URL'),
   api: Object.freeze({
     port: optionalInt('API_PORT', 3000),
   }),
+  // Válvula de escape só para desenvolvimento local/testes: permite webhook
+  // apontando pra localhost/IP privado. Nunca ligar isso em produção — é
+  // exatamente a proteção contra SSRF que essa flag desliga.
+  allowPrivateNetworkUrls: optionalBool('ALLOW_PRIVATE_NETWORK_URLS', false),
   worker: Object.freeze({
     prefetch: optionalInt('WORKER_PREFETCH', 10),
     maxRetries: optionalInt('MAX_RETRIES', 5),

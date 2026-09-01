@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { publishWebhook } from '../publisher.js';
+import { assertPublicUrl, SsrfError } from '../../shared/ssrfGuard.js';
 
 const bodySchema = {
   type: 'object',
@@ -15,15 +16,6 @@ const bodySchema = {
   },
 };
 
-function isValidHttpUrl(value) {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * POST /api/v1/webhooks — porta de entrada do sistema.
  *
@@ -32,17 +24,22 @@ function isValidHttpUrl(value) {
  * do worker (M3). Se o broker estiver indisponível, responde 503 e
  * nunca 202: o cliente sabe que precisa tentar de novo.
  *
- * A validação de URL aqui é só sintática (esquema http/https). Bloqueio
- * de IP privado/loopback (SSRF) é tratado à parte — ver issue #28.
+ * A validação de URL inclui a defesa contra SSRF (esquema, IP privado,
+ * DNS) — ver src/shared/ssrfGuard.js. O worker revalida de novo antes
+ * de cada tentativa de despacho, porque o backoff pode espaçar
+ * tentativas por minutos: tempo de sobra pra um DNS rebinding.
  */
 export default async function webhooksRoutes(app) {
   app.post('/api/v1/webhooks', { schema: { body: bodySchema } }, async (request, reply) => {
     const { url, payload, headers } = request.body;
 
-    if (!isValidHttpUrl(url)) {
-      return reply.code(400).send({
-        error: 'url inválida: precisa ser uma URL http:// ou https:// bem formada',
-      });
+    try {
+      await assertPublicUrl(url);
+    } catch (err) {
+      if (err instanceof SsrfError) {
+        return reply.code(400).send({ error: `url inválida: ${err.message}` });
+      }
+      throw err;
     }
 
     const messageId = randomUUID();

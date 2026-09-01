@@ -11,6 +11,18 @@ jest.unstable_mockModule('../../src/api/publisher.js', () => ({
   isPublisherReady: () => true,
 }));
 
+// O guard de SSRF de verdade faz uma resolução DNS real — mockado aqui
+// pra este arquivo não depender de rede. A lógica do guard em si tem
+// suíte própria em test/unit/ssrfGuard.test.js.
+const assertPublicUrlMock = jest.fn().mockResolvedValue(undefined);
+
+class FakeSsrfError extends Error {}
+
+jest.unstable_mockModule('../../src/shared/ssrfGuard.js', () => ({
+  assertPublicUrl: assertPublicUrlMock,
+  SsrfError: FakeSsrfError,
+}));
+
 let buildServer;
 let app;
 
@@ -20,6 +32,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   publishWebhookMock.mockReset();
+  assertPublicUrlMock.mockReset().mockResolvedValue(undefined);
   app = buildServer();
   await app.ready();
 });
@@ -55,11 +68,17 @@ describe('POST /api/v1/webhooks', () => {
     expect(publishWebhookMock).not.toHaveBeenCalled();
   });
 
-  test('url sem esquema http(s) responde 400 e não publica', async () => {
+  test('url reprovada pelo guard de SSRF responde 400 e não publica', async () => {
+    assertPublicUrlMock.mockRejectedValueOnce(
+      new FakeSsrfError('IP "169.254.169.254" pertence a uma faixa privada ou reservada')
+    );
+
     const res = await request(app.server)
       .post('/api/v1/webhooks')
-      .send({ url: 'ftp://exemplo.com', payload: {} });
+      .send({ url: 'http://169.254.169.254/latest/meta-data', payload: {} });
+
     expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/faixa privada/);
     expect(publishWebhookMock).not.toHaveBeenCalled();
   });
 

@@ -1,10 +1,22 @@
-import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, test, expect, jest, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import http from 'node:http';
-import { dispatch } from '../../src/worker/dispatcher.js';
 
-// Servidor HTTP efêmero local — dispatch() não sabe nem precisa saber que
-// existe um RabbitMQ; ele só faz POST numa URL. Isso testa a classificação
-// de resposta de ponta a ponta sem precisar de broker nenhum.
+// O servidor de teste roda em 127.0.0.1 (loopback) — o guard de SSRF de
+// verdade bloquearia isso. Mockado aqui pra testar a lógica HTTP do
+// dispatch() isoladamente; a lógica do guard em si tem suíte própria
+// em test/unit/ssrfGuard.test.js, e o uso do guard dentro do dispatch()
+// é verificado nos dois testes dedicados no fim deste arquivo.
+const assertPublicUrlMock = jest.fn().mockResolvedValue(undefined);
+
+class FakeSsrfError extends Error {}
+
+jest.unstable_mockModule('../../src/shared/ssrfGuard.js', () => ({
+  assertPublicUrl: assertPublicUrlMock,
+  SsrfError: FakeSsrfError,
+}));
+
+const { dispatch } = await import('../../src/worker/dispatcher.js');
+
 let server;
 let baseUrl;
 let receivedHeaders;
@@ -21,6 +33,9 @@ beforeAll(async () => {
     } else if (req.url === '/erro404') {
       res.writeHead(404);
       res.end('não encontrado');
+    } else if (req.url === '/redireciona') {
+      res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data' });
+      res.end();
     } else if (req.url === '/lento') {
       // Maior que o HTTP_TIMEOUT_MS=2000 do test/setup.js, pra garantir o
       // timeout do cliente — mas .unref() e cancelado se o cliente abortar
@@ -41,6 +56,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
+});
+
+beforeEach(() => {
+  assertPublicUrlMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe('dispatch', () => {
@@ -109,5 +128,27 @@ describe('dispatch', () => {
     });
     expect(receivedHeaders['x-custom']).toBe('abc123');
     expect(receivedHeaders['content-type']).toBe('application/json');
+  });
+
+  test('redirecionamento do destino não é seguido, vira falha não-retryable', async () => {
+    const result = await dispatch({
+      url: `${baseUrl}/redireciona`,
+      payload: {},
+      headers: {},
+      attempt: 0,
+    });
+    expect(result.outcome).toBe('failure');
+    expect(result.retryable).toBe(false);
+    expect(result.error).toMatch(/redirecionamento/);
+  });
+
+  test('URL bloqueada pelo guard de SSRF nunca chega a fazer a requisição HTTP', async () => {
+    assertPublicUrlMock.mockRejectedValueOnce(new FakeSsrfError('IP privado'));
+
+    const result = await dispatch({ url: `${baseUrl}/ok`, payload: {}, headers: {}, attempt: 0 });
+
+    expect(result.outcome).toBe('failure');
+    expect(result.retryable).toBe(false);
+    expect(result.error).toMatch(/SSRF/);
   });
 });
