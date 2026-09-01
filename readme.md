@@ -105,10 +105,50 @@ O fluxo estrutural funciona em camadas bem definidas:
 - Docker e Docker Compose instalados na sua máquina.
 - Node.js (versão 18 ou superior).
 
-### 1. Subir a Infraestrutura (RabbitMQ)
+### 1. Configurar as variáveis de ambiente
 
-Na raiz do projeto, suba o container do RabbitMQ:
+Copie o `.env.example` para `.env` e ajuste a senha do RabbitMQ:
+
+```bash
+cp .env.example .env
+```
+
+### 2. Subir tudo com um comando
+
+Na raiz do projeto:
 
 ```bash
 docker compose up -d
+```
+
+Isso sobe o RabbitMQ, a API e o worker — a API só entra no ar depois do broker passar no healthcheck. Confirme com:
+
+```bash
+curl http://localhost:3000/health
+```
+
+Pra escalar o número de workers:
+
+```bash
+docker compose up -d --scale worker=3
+```
+
+### 3. Testar a ingestão
+
+```bash
+curl -X POST http://localhost:3000/api/v1/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://httpbin.org/status/200", "payload": {"evento": "teste"}}'
+```
+
+Deve responder `202 Accepted` com um `messageId`. Acompanhe a entrega em `docker compose logs worker -f`, ou inspecione as filas no painel do RabbitMQ em [http://localhost:15672](http://localhost:15672).
+
+### Rodando fora do Docker (desenvolvimento)
+
+Com o RabbitMQ no ar (`docker compose up -d rabbitmq`), rode a API e o worker localmente com Node 18+:
+
+```bash
+npm install
+npm run start:api    # em um terminal
+npm run start:worker # em outro
 ```
