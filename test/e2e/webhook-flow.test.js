@@ -148,4 +148,25 @@ describe('fluxo completo do webhook contra RabbitMQ real', () => {
     expect(parsed.lastStatus).toBe(500);
     expect(parsed.messageId).toBe(message.messageId);
   });
+
+  test('destino totalmente fora do ar (conexão recusada) percorre todo o retry até a DLQ (#39)', async () => {
+    // Porta 1 é reservada — nada escuta nela, então é uma conexão
+    // recusada de verdade, não um erro HTTP. Diferente do cenário
+    // "sempre 500": aqui não existe nem resposta, o TCP nem conecta.
+    const message = baseMessage('http://127.0.0.1:1/');
+
+    await publishWebhook(message);
+
+    await waitUntil(async () => (await queueDepth(QUEUES.dlq)) === 1, { timeoutMs: 8000 });
+
+    const ch = await getChannel();
+    const dlqMsg = await ch.get(QUEUES.dlq, { noAck: true });
+    await ch.close();
+    const parsed = JSON.parse(dlqMsg.content.toString());
+    expect(parsed.attempt).toBe(3);
+    expect(parsed.messageId).toBe(message.messageId);
+    // Conexão recusada não tem status HTTP nenhum pra reportar.
+    expect(parsed.lastStatus).toBeNull();
+    expect(parsed.lastError).toBeDefined();
+  });
 });
