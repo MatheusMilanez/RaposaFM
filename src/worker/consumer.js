@@ -1,35 +1,13 @@
 import { getChannel } from '../shared/amqp.js';
-import { assertTopology, EXCHANGE, QUEUES, ROUTING_KEYS } from '../shared/topology.js';
+import { assertTopology, QUEUES } from '../shared/topology.js';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 import { dispatch } from './dispatcher.js';
+import { decideOutcome, publishToDlq, publishToWait } from './retryPolicy.js';
 
 let channel = null;
 let consumerTag = null;
 let inFlight = 0;
-
-/**
- * Envia a mensagem que falhou para a DLQ, com o motivo anexado.
- *
- * Comportamento provisório da M3: a política completa de retry com
- * backoff exponencial (fila de espera + contador de tentativas) é da
- * M4 — ver issues #12, #13 e #14. Até lá, qualquer falha vai direto
- * para a DLQ: nunca perde a mensagem, nunca reentrega na hora contra
- * um destino que está fora do ar.
- */
-function routeToDlq(ch, message, result) {
-  const failedMessage = {
-    ...message,
-    lastError: result.error,
-    lastStatus: result.status,
-    failedAt: new Date().toISOString(),
-  };
-  ch.publish(EXCHANGE, ROUTING_KEYS.dlq, Buffer.from(JSON.stringify(failedMessage)), {
-    persistent: true,
-    contentType: 'application/json',
-    messageId: message.messageId,
-  });
-}
 
 async function handleMessage(ch, msg) {
   inFlight += 1;
@@ -49,10 +27,20 @@ async function handleMessage(ch, msg) {
 
     if (result.outcome === 'success') {
       ch.ack(msg);
-    } else {
-      routeToDlq(ch, message, result);
-      ch.ack(msg); // a mensagem já está segura na DLQ antes de confirmar a original
+      return;
     }
+
+    const decision = decideOutcome(message, result);
+    if (decision.action === 'retry') {
+      publishToWait(ch, message, result, decision);
+    } else {
+      publishToDlq(ch, message, result, decision);
+      logger.warn('worker: mensagem enviada para a DLQ', {
+        messageId: message.messageId,
+        motivo: decision.reason,
+      });
+    }
+    ch.ack(msg); // a mensagem já está segura no próximo destino (wait ou DLQ)
   } finally {
     inFlight -= 1;
   }

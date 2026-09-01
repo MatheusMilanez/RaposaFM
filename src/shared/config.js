@@ -30,6 +30,19 @@ function optionalInt(name, fallback) {
   return parsed;
 }
 
+function optionalIntList(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = raw.split(',').map((part) => Number.parseInt(part.trim(), 10));
+  if (parsed.length === 0 || parsed.some((n) => Number.isNaN(n) || n < 0)) {
+    throw new Error(
+      `Configuração inválida: "${name}" deve ser uma lista de inteiros não-negativos separados ` +
+        `por vírgula (ex.: "60000,300000,900000"), recebido "${raw}".`
+    );
+  }
+  return parsed;
+}
+
 export const config = Object.freeze({
   rabbitmqUrl: required('RABBITMQ_URL'),
   api: Object.freeze({
@@ -39,6 +52,10 @@ export const config = Object.freeze({
     prefetch: optionalInt('WORKER_PREFETCH', 10),
     maxRetries: optionalInt('MAX_RETRIES', 5),
     httpTimeoutMs: optionalInt('HTTP_TIMEOUT_MS', 5000),
+    // Degraus do backoff exponencial, em ms. A tentativa N usa o degrau
+    // min(N-1, tamanho-1) — depois do último degrau, repete o valor final
+    // até MAX_RETRIES estourar. Padrão: 1min, 5min, 15min (README).
+    backoffScheduleMs: optionalIntList('RETRY_BACKOFF_MS', [60_000, 300_000, 900_000]),
   }),
   logLevel: process.env.LOG_LEVEL || 'info',
 });
