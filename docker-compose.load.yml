@@ -1,0 +1,25 @@
+# Overlay usado só para teste de carga (npm run test:load), não faz
+# parte da stack normal. Sobe um destino local que só responde 200 na
+# hora — precisa dele pra não martelar um serviço de terceiros com
+# tráfego de carga, e pra medir o tempo de drenagem de verdade.
+services:
+  echo-destination:
+    image: node:22-alpine
+    command:
+      [
+        'node',
+        '-e',
+        "require('http').createServer((req,res)=>{res.writeHead(200);res.end();}).listen(8080)",
+      ]
+    restart: unless-stopped
+
+  # O destino é um IP privado da rede do compose — o guard de SSRF
+  # bloquearia isso por padrão (correto: é exatamente pra pegar esse
+  # caso). Liberado só aqui, no overlay de teste de carga.
+  api:
+    environment:
+      ALLOW_PRIVATE_NETWORK_URLS: 'true'
+
+  worker:
+    environment:
+      ALLOW_PRIVATE_NETWORK_URLS: 'true'

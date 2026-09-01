@@ -152,3 +152,24 @@ npm install
 npm run start:api    # em um terminal
 npm run start:worker # em outro
 ```
+
+---
+
+## 📈 Teste de Carga
+
+Scripts em [`scripts/load/`](scripts/load/), rodados via [k6](https://k6.io/) contra a stack real do Docker Compose (com um destino local de eco, pra não martelar um serviço de terceiros):
+
+```bash
+npm run test:load    # baseline + ramp-up + pico (ingest.js)
+npm run test:stress  # empurra a carga até o ponto de quebra (stress.js)
+```
+
+**Resultado de referência** (01/09/2026, 1 réplica de API e de worker, sem tuning):
+
+| Cenário                                                                 | Resultado                                                                                                                                                                        |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline + ramp-up + pico (20.777 requisições, até 100 VUs simultâneos) | `p95 = 166ms`, `p99 = 224ms`, **0% de erro**                                                                                                                                     |
+| Tempo de drenagem (5.419 mensagens acumuladas processadas por 1 worker) | **12s**                                                                                                                                                                          |
+| Estresse (até 1000 VUs simultâneos)                                     | **98,31%** respondeu `202`/`503` normalmente; o restante estourou o timeout de 10s do cliente — esse é o teto real de capacidade desta configuração, não uma falha descontrolada |
+
+Números variam por máquina — rode localmente antes de usar como referência de capacidade real.

@@ -20,5 +20,17 @@ export default [
       'no-console': 'off',
     },
   },
+  {
+    // Scripts k6 rodam no runtime próprio do k6 (Goja), não no Node —
+    // __ENV, __VU e __ITER são globais dele, não do Node.
+    files: ['scripts/load/**/*.js'],
+    languageOptions: {
+      globals: {
+        __ENV: 'readonly',
+        __VU: 'readonly',
+        __ITER: 'readonly',
+      },
+    },
+  },
   prettierConfig,
 ];
