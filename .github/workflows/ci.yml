@@ -50,10 +50,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # A biblioteca testcontainers exige Node >= 22.22 (mais novo que o
+      # mínimo do próprio RaposaFM, que continua em 18+). É exigência da
+      # ferramenta de teste, não da aplicação.
       - name: Configurar Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 22.x
           cache: 'npm'
 
       - name: Instalar dependências
