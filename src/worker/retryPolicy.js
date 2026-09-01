@@ -1,5 +1,6 @@
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
+import { publishConfirmed } from '../shared/amqp.js';
 import { EXCHANGE, ROUTING_KEYS } from '../shared/topology.js';
 
 /**
@@ -35,32 +36,45 @@ function withFailureContext(message, result) {
   };
 }
 
-/** Publica a mensagem esgotada/permanentemente falha na DLQ, para inspeção. */
-export function publishToDlq(ch, message, result, { attempt } = {}) {
+/**
+ * Publica a mensagem esgotada/permanentemente falha na DLQ, para
+ * inspeção. Só resolve depois do broker confirmar (publisher confirms)
+ * — mesma razão do publisher da API, ver shared/amqp.js.
+ */
+export async function publishToDlq(ch, message, result, { attempt } = {}) {
   const failedMessage = {
     ...withFailureContext(message, result),
     ...(attempt !== undefined ? { attempt } : {}),
   };
-  ch.publish(EXCHANGE, ROUTING_KEYS.dlq, Buffer.from(JSON.stringify(failedMessage)), {
-    persistent: true,
-    contentType: 'application/json',
-    messageId: message.messageId,
-  });
+  await publishConfirmed(
+    ch,
+    EXCHANGE,
+    ROUTING_KEYS.dlq,
+    Buffer.from(JSON.stringify(failedMessage)),
+    { persistent: true, contentType: 'application/json', messageId: message.messageId }
+  );
 }
 
 /**
  * Agenda o reenvio: publica na fila de espera com o TTL do degrau atual
  * (propriedade `expiration`, por mensagem — não é TTL fixo da fila). Ao
  * expirar, o RabbitMQ devolve a mensagem para a fila de entrega sozinho.
+ * Só resolve depois do broker confirmar a publicação.
  */
-export function publishToWait(ch, message, result, { nextAttempt, delayMs }) {
+export async function publishToWait(ch, message, result, { nextAttempt, delayMs }) {
   const retryMessage = { ...withFailureContext(message, result), attempt: nextAttempt };
-  ch.publish(EXCHANGE, ROUTING_KEYS.wait, Buffer.from(JSON.stringify(retryMessage)), {
-    persistent: true,
-    contentType: 'application/json',
-    messageId: message.messageId,
-    expiration: String(delayMs),
-  });
+  await publishConfirmed(
+    ch,
+    EXCHANGE,
+    ROUTING_KEYS.wait,
+    Buffer.from(JSON.stringify(retryMessage)),
+    {
+      persistent: true,
+      contentType: 'application/json',
+      messageId: message.messageId,
+      expiration: String(delayMs),
+    }
+  );
   logger.info('worker: retry agendado', {
     messageId: message.messageId,
     tentativa: nextAttempt,

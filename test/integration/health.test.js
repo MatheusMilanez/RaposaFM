@@ -11,6 +11,7 @@ jest.unstable_mockModule('../../src/shared/amqp.js', () => ({
   getChannel: jest.fn(),
   startAmqp: jest.fn(),
   closeAmqp: jest.fn(),
+  publishConfirmed: jest.fn(),
 }));
 
 let buildServer;

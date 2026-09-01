@@ -125,12 +125,10 @@ describe('caos: RabbitMQ reiniciado no meio do fluxo', () => {
     await waitUntil(() => isAmqpConnected(), { timeoutMs: 90000 });
     destBehavior['/durab'] = { status: 200 };
     const message = baseMessage(`http://127.0.0.1:${destPort}/durab`);
+    // publishWebhook() usa publisher confirms — este await só resolve
+    // depois do broker confirmar que persistiu, então não precisa de
+    // nenhuma folga artificial antes do restart.
     await publishWebhook(message);
-    // publishWebhook() não usa publisher confirms — await só garante que
-    // escrevemos no socket, não que o broker já persistiu em disco. Uma
-    // pequena folga aqui é necessária pra testar durabilidade de verdade,
-    // e não uma corrida do próprio teste.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     execSync(`docker restart ${CONTAINER_NAME}`, { stdio: 'ignore' });
     await waitUntil(() => !isAmqpConnected(), { timeoutMs: 15000 });

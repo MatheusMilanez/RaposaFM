@@ -1,4 +1,4 @@
-import { getChannel, isAmqpConnected } from '../shared/amqp.js';
+import { getChannel, isAmqpConnected, publishConfirmed } from '../shared/amqp.js';
 import { assertTopology, EXCHANGE, ROUTING_KEYS } from '../shared/topology.js';
 import { logger } from '../shared/logger.js';
 
@@ -36,22 +36,19 @@ async function ensureChannel() {
 }
 
 /**
- * Publica a mensagem de webhook na fila de entrega.
- * Lança erro se o broker estiver indisponível ou o channel estiver com
- * o buffer cheio — a rota decide responder 503 nesses casos.
+ * Publica a mensagem de webhook na fila de entrega. Só resolve depois
+ * que o RabbitMQ confirma que persistiu (publisher confirms — ver
+ * shared/amqp.js). Lança erro se o broker estiver indisponível, não
+ * confirmar, ou o channel estiver com o buffer cheio — a rota decide
+ * responder 503 nesses casos.
  */
 export async function publishWebhook(message) {
   const ch = await ensureChannel();
-
-  const ok = ch.publish(EXCHANGE, ROUTING_KEYS.deliver, Buffer.from(JSON.stringify(message)), {
+  await publishConfirmed(ch, EXCHANGE, ROUTING_KEYS.deliver, Buffer.from(JSON.stringify(message)), {
     persistent: true,
     contentType: 'application/json',
     messageId: message.messageId,
   });
-
-  if (!ok) {
-    throw new Error('buffer do channel AMQP cheio, tente novamente');
-  }
 }
 
 export function isPublisherReady() {

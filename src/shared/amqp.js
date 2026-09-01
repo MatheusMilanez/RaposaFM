@@ -79,12 +79,41 @@ export function isAmqpConnected() {
  * Abre um channel novo na connection atual. Lança erro imediatamente se
  * não houver connection ativa — quem chama decide como reagir (ex.: a
  * rota de ingestão responde 503 em vez de ficar esperando).
+ *
+ * Sempre um confirm channel (createConfirmChannel, não createChannel):
+ * publicar sem isso só garante que escrevemos no socket, não que o
+ * RabbitMQ persistiu a mensagem — ver publishConfirmed() abaixo.
  */
 export async function getChannel() {
   if (!connection) {
     throw new Error('sem conexão ativa com o RabbitMQ');
   }
-  return connection.createChannel();
+  return connection.createConfirmChannel();
+}
+
+/**
+ * Publica e só resolve quando o broker confirma que persistiu a
+ * mensagem (publisher confirms). channel.publish() sozinho retorna
+ * antes disso — resolve só quando escrevemos no socket local, não
+ * quando o RabbitMQ de fato gravou em disco. Sem isso, um crash do
+ * broker bem no meio dessa janela perde a mensagem silenciosamente,
+ * mesmo com a API já tendo respondido sucesso.
+ *
+ * channel precisa ter sido aberto por getChannel() (confirm channel).
+ */
+export function publishConfirmed(channel, exchange, routingKey, buffer, options) {
+  return new Promise((resolve, reject) => {
+    const ok = channel.publish(exchange, routingKey, buffer, options, (err) => {
+      if (err) reject(new Error('broker não confirmou a publicação'));
+      else resolve();
+    });
+    if (!ok) {
+      // Buffer local do channel cheio. O callback acima ainda pode
+      // disparar mais tarde, mas a promise já rejeitou — settle
+      // duplo em uma Promise é inofensivo (só o primeiro conta).
+      reject(new Error('buffer do channel AMQP cheio, tente novamente'));
+    }
+  });
 }
 
 export async function closeAmqp() {

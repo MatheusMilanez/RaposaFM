@@ -4,8 +4,16 @@ import { EXCHANGE, ROUTING_KEYS } from '../../src/shared/topology.js';
 
 // test/setup.js define RETRY_BACKOFF_MS=1000,2000,4000 e MAX_RETRIES=5.
 
+// publishConfirmed() usa o confirm channel do amqplib: publish() recebe
+// um callback como 5º argumento, chamado quando o broker confirma. O
+// fake precisa invocá-lo (com null = sem erro) pra promise resolver.
 function fakeChannel() {
-  return { publish: jest.fn().mockReturnValue(true) };
+  return {
+    publish: jest.fn((exchange, routingKey, buffer, options, cb) => {
+      cb(null);
+      return true;
+    }),
+  };
 }
 
 describe('decideOutcome', () => {
@@ -59,12 +67,12 @@ describe('decideOutcome', () => {
 });
 
 describe('publishToWait', () => {
-  test('publica no exchange certo com o TTL da tentativa como expiration', () => {
+  test('publica no exchange certo com o TTL da tentativa como expiration', async () => {
     const ch = fakeChannel();
     const message = { messageId: 'm1', url: 'https://x', payload: {}, attempt: 0 };
     const result = { retryable: true, status: 500, error: 'HTTP 500' };
 
-    publishToWait(ch, message, result, { nextAttempt: 1, delayMs: 1000 });
+    await publishToWait(ch, message, result, { nextAttempt: 1, delayMs: 1000 });
 
     expect(ch.publish).toHaveBeenCalledTimes(1);
     const [exchange, routingKey, buffer, options] = ch.publish.mock.calls[0];
@@ -80,12 +88,12 @@ describe('publishToWait', () => {
 });
 
 describe('publishToDlq', () => {
-  test('publica no exchange certo com o contexto do erro', () => {
+  test('publica no exchange certo com o contexto do erro', async () => {
     const ch = fakeChannel();
     const message = { messageId: 'm2', url: 'https://x', payload: {}, attempt: 2 };
     const result = { retryable: true, status: 500, error: 'HTTP 500' };
 
-    publishToDlq(ch, message, result, { attempt: 3 });
+    await publishToDlq(ch, message, result, { attempt: 3 });
 
     const [exchange, routingKey, buffer] = ch.publish.mock.calls[0];
     expect(exchange).toBe(EXCHANGE);
@@ -97,12 +105,12 @@ describe('publishToDlq', () => {
     expect(published.lastAttemptAt).toBeDefined();
   });
 
-  test('sem attempt explícito, preserva o attempt original da mensagem', () => {
+  test('sem attempt explícito, preserva o attempt original da mensagem', async () => {
     const ch = fakeChannel();
     const message = { messageId: 'm3', url: 'https://x', payload: {}, attempt: 0 };
     const result = { retryable: false, status: 404, error: 'HTTP 404' };
 
-    publishToDlq(ch, message, result);
+    await publishToDlq(ch, message, result);
 
     const published = JSON.parse(ch.publish.mock.calls[0][2].toString());
     expect(published.attempt).toBe(0);

@@ -35,15 +35,15 @@ export async function handleMessage(ch, msg) {
 
     const decision = decideOutcome(message, result);
     if (decision.action === 'retry') {
-      publishToWait(ch, message, result, decision);
+      await publishToWait(ch, message, result, decision);
     } else {
-      publishToDlq(ch, message, result, { attempt: decision.nextAttempt });
+      await publishToDlq(ch, message, result, { attempt: decision.nextAttempt });
       logger.warn('worker: mensagem enviada para a DLQ', {
         messageId: message.messageId,
         motivo: decision.reason,
       });
     }
-    ch.ack(msg); // a mensagem já está segura no próximo destino (wait ou DLQ)
+    ch.ack(msg); // só confirma depois do broker ter confirmado o próximo destino
   } finally {
     inFlight -= 1;
   }

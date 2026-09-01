@@ -8,11 +8,17 @@ jest.unstable_mockModule('../../src/worker/dispatcher.js', () => ({ dispatch: di
 
 const { handleMessage } = await import('../../src/worker/consumer.js');
 
+// publishConfirmed() (usado por publishToWait/publishToDlq) chama
+// publish() com um callback como 5º argumento, disparado quando o
+// broker confirma — o fake precisa invocá-lo pra promise resolver.
 function fakeChannel() {
   return {
     ack: jest.fn(),
     nack: jest.fn(),
-    publish: jest.fn().mockReturnValue(true),
+    publish: jest.fn((exchange, routingKey, buffer, options, cb) => {
+      cb(null);
+      return true;
+    }),
   };
 }
 
