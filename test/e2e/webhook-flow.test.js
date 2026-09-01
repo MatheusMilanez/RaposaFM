@@ -24,6 +24,7 @@ let startAmqp, closeAmqp, getChannel, isAmqpConnected;
 let QUEUES;
 let publishWebhook;
 let startConsumer, stopConsumer;
+let dispatch;
 
 beforeAll(async () => {
   container = await new RabbitMQContainer('rabbitmq:3-management').start();
@@ -40,6 +41,7 @@ beforeAll(async () => {
   ({ QUEUES } = await import('../../src/shared/topology.js'));
   ({ publishWebhook } = await import('../../src/api/publisher.js'));
   ({ startConsumer, stopConsumer } = await import('../../src/worker/consumer.js'));
+  ({ dispatch } = await import('../../src/worker/dispatcher.js'));
 
   destBehavior = {};
   destServer = http.createServer((req, res) => {
@@ -47,8 +49,11 @@ beforeAll(async () => {
     behavior.count = (behavior.count || 0) + 1;
     const status =
       behavior.failTimes && behavior.count <= behavior.failTimes ? 500 : behavior.status;
-    res.writeHead(status);
-    res.end();
+    setTimeout(() => {
+      behavior.onArrival?.();
+      res.writeHead(status);
+      res.end();
+    }, behavior.delayMs || 0);
   });
   await new Promise((resolve) => destServer.listen(0, '127.0.0.1', resolve));
   destPort = destServer.address().port;
@@ -169,4 +174,75 @@ describe('fluxo completo do webhook contra RabbitMQ real', () => {
     expect(parsed.lastStatus).toBeNull();
     expect(parsed.lastError).toBeDefined();
   });
+
+  test('ack perdido depois de uma entrega bem-sucedida causa duplicata — cliente precisa ser idempotente (#32)', async () => {
+    // Reproduz de forma determinística (sem depender de cronometrar um
+    // SIGKILL): consome a mensagem manualmente, despacha de verdade
+    // (dispatch() real, o destino recebe e responde 200), mas fecha o
+    // channel ANTES de confirmar — exatamente o que acontece se o
+    // worker morrer entre a entrega e o ack. O RabbitMQ, sem receber a
+    // confirmação, devolve a mensagem pra fila sozinho.
+    //
+    // O beforeAll já deixa um consumer de fundo rodando pro resto da
+    // suíte — precisa parar ele aqui, senão ele pega a mensagem antes
+    // do ch1.get() manual conseguir.
+    await stopConsumer({ timeoutMs: 5000 });
+
+    destBehavior['/idempotencia'] = { status: 200 };
+    const message = baseMessage(`http://127.0.0.1:${destPort}/idempotencia`);
+    await publishWebhook(message);
+
+    const ch1 = await getChannel();
+    await ch1.prefetch(1);
+    let msg;
+    await waitUntil(
+      async () => {
+        msg = await ch1.get(QUEUES.delivery, { noAck: false });
+        return Boolean(msg);
+      },
+      { timeoutMs: 5000 }
+    );
+    const parsedMsg = JSON.parse(msg.content.toString());
+    const result = await dispatch(parsedMsg);
+    expect(result.outcome).toBe('success');
+    expect(destBehavior['/idempotencia'].count).toBe(1); // 1ª entrega, de verdade
+    await ch1.close(); // "morre" sem confirmar — simula o crash
+
+    await waitUntil(async () => (await queueDepth(QUEUES.delivery)) === 1, { timeoutMs: 10000 });
+
+    // Um worker normal processa a mensagem redevolvida — o destino
+    // recebe a MESMA mensagem uma segunda vez. Não para o consumer nesse
+    // ponto: o beforeAll deixou ele rodando pro resto da suíte, e os
+    // testes seguintes dependem disso.
+    await startConsumer();
+    await waitUntil(() => destBehavior['/idempotencia'].count === 2, { timeoutMs: 10000 });
+
+    expect(destBehavior['/idempotencia'].count).toBe(2); // duplicata real, não simulada
+  }, 30000);
+
+  test('múltiplos workers concorrentes não garantem ordem de entrega (#33)', async () => {
+    // 5 mensagens publicadas na ordem 0,1,2,3,4, cada uma pra uma rota
+    // com delay decrescente — a mensagem 4 responde na hora, a 0 demora
+    // mais. Com prefetch alto (todas em voo ao mesmo tempo), a ordem de
+    // chegada no destino deveria ser o inverso da ordem de publicação.
+    const N = 5;
+    const arrivalOrder = [];
+    for (let i = 0; i < N; i++) {
+      destBehavior[`/ordem-${i}`] = {
+        status: 200,
+        delayMs: (N - 1 - i) * 300,
+        onArrival: () => arrivalOrder.push(i),
+      };
+    }
+
+    for (let i = 0; i < N; i++) {
+      await publishWebhook(baseMessage(`http://127.0.0.1:${destPort}/ordem-${i}`));
+    }
+
+    await waitUntil(() => arrivalOrder.length === N, { timeoutMs: 10000 });
+
+    expect(arrivalOrder).not.toEqual([0, 1, 2, 3, 4]); // não manteve a ordem de publicação
+    expect(arrivalOrder).toEqual([4, 3, 2, 1, 0]); // inverteu, como o delay desenhado previa
+    expect(new Set(arrivalOrder).size).toBe(N); // todas chegaram, nenhuma perdida
+  }, 20000);
 });
