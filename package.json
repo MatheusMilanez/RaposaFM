@@ -1,14 +1,17 @@
 {
   "name": "raposafm",
   "version": "0.1.0",
-  "private": true,
   "description": "Despachante de webhooks assíncrono, leve e self-hosted.",
   "type": "module",
   "engines": {
     "node": ">=18"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MatheusMilanez/RaposaFM.git"
+  },
   "bin": {
-    "raposafm": "./bin/raposafm.mjs"
+    "raposafm": "bin/raposafm.mjs"
   },
   "files": [
     "bin",
