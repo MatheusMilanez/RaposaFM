@@ -10,7 +10,11 @@
   "bin": {
     "raposafm": "./bin/raposafm.mjs"
   },
-  "files": ["bin", "cli", "templates"],
+  "files": [
+    "bin",
+    "cli",
+    "templates"
+  ],
   "scripts": {
     "start:api": "node src/api/server.js",
     "start:worker": "node src/worker/index.js",
