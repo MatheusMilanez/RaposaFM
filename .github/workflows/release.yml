@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # Repete lint/testes/e2e em vez de confiar no CI do main: uma tag pode
+  # apontar pra qualquer commit, inclusive um cujo CI nunca rodou ou ainda
+  # está em andamento. Publicar sem essa checagem própria seria confiar
+  # cegamente em quem criou a tag.
+  test:
+    name: Lint e testes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatação (Prettier)
+        run: npx prettier --check .
+
+      - name: Testes com cobertura
+        run: npm run test:coverage
+
+  e2e:
+    name: Testes e2e (RabbitMQ real via Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes e2e
+        run: npm run test:e2e
+
+  publish:
+    name: Publicar no npm
+    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # criar a release no GitHub
+      id-token: write # assinatura de provenance do npm (OIDC)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Confere se a tag bate com a versão do package.json
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "Tag $GITHUB_REF_NAME não corresponde à versão $pkg_version em package.json"
+            exit 1
+          fi
+
+      - name: Publicar
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Criar release no GitHub
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
