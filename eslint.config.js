@@ -4,7 +4,10 @@ import prettierConfig from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['node_modules/**', 'coverage/**', 'dist/**'],
+    // templates/ é conteúdo empacotado pro CLI (M8), cópia exata de src/
+    // — não é código nosso pra manter duas vezes, o script
+    // check-template-sync já garante que bate com o original.
+    ignores: ['node_modules/**', 'coverage/**', 'dist/**', 'templates/**'],
   },
   js.configs.recommended,
   {

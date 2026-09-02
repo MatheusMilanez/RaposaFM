@@ -1,0 +1,29 @@
+# __PROJECT_NAME__
+
+Despachante de webhooks assíncrono, criado com `npx raposafm init` — baseado no [RaposaFM](https://github.com/MatheusMilanez/RaposaFM).
+
+## Rodando
+
+```bash
+cp .env.example .env   # já vem preenchido pelo init, confira antes de usar
+docker compose up -d
+curl http://localhost:3000/health
+```
+
+Escalar workers:
+
+```bash
+docker compose up -d --scale worker=3
+```
+
+Testar a ingestão:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://httpbin.org/status/200", "payload": {"evento": "teste"}}'
+```
+
+## Variáveis de ambiente
+
+Todas em [`.env.example`](.env.example). Documentação completa de cada uma, da arquitetura e do funcionamento interno: [github.com/MatheusMilanez/RaposaFM](https://github.com/MatheusMilanez/RaposaFM).

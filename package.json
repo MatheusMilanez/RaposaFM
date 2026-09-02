@@ -17,7 +17,8 @@
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.e2e.config.js --runInBand",
     "test:load": "node scripts/load/run.mjs ingest",
-    "test:stress": "node scripts/load/run.mjs stress"
+    "test:stress": "node scripts/load/run.mjs stress",
+    "check:template-sync": "node scripts/check-template-sync.mjs"
   },
   "license": "MIT",
   "dependencies": {
