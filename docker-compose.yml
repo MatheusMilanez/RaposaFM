@@ -1,7 +1,10 @@
 services:
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: raposafm-rabbitmq
+    # Sem container_name fixo de propósito: colidiria se você rodar dois
+    # projetos gerados pelo CLI (ou este e um deles) ao mesmo tempo — o
+    # Compose já prefixa o nome pelo nome do projeto sozinho.
+    #
     # O RabbitMQ guarda o banco (mnesia) em um diretório por hostname do
     # node. Sem isso fixo, cada recriação do container (docker compose
     # down + up) sorteia um hostname novo e o node "esquece" tudo que
