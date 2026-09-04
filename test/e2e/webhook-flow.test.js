@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { RabbitMQContainer } from '@testcontainers/rabbitmq';
+import { PostgreSqlContainer } from '@testcontainers/postgresql';
 
 /**
  * Teste end-to-end contra um RabbitMQ real (Testcontainers), usando o
@@ -16,6 +17,7 @@ import { RabbitMQContainer } from '@testcontainers/rabbitmq';
  */
 
 let container;
+let pgContainer;
 let destServer;
 let destPort;
 let destBehavior;
@@ -25,17 +27,23 @@ let QUEUES;
 let publishWebhook;
 let startConsumer, stopConsumer;
 let dispatch;
+let enqueue;
+let getPool;
 
 beforeAll(async () => {
   container = await new RabbitMQContainer('rabbitmq:3-management').start();
+  pgContainer = await new PostgreSqlContainer('postgres:16-alpine').start();
 
   process.env.RABBITMQ_URL = container.getAmqpUrl();
-  process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
+  process.env.DATABASE_URL = pgContainer.getConnectionUri();
   process.env.RETRY_BACKOFF_MS = '1000,2000';
   process.env.MAX_RETRIES = '3';
   process.env.HTTP_TIMEOUT_MS = '2000';
   process.env.WORKER_PREFETCH = '10';
   process.env.ALLOW_PRIVATE_NETWORK_URLS = 'true'; // o destino de teste é local
+
+  const { runMigrations } = await import('../../src/db/migrate.js');
+  await runMigrations('up');
 
   ({ startAmqp, closeAmqp, getChannel, isAmqpConnected } =
     await import('../../src/shared/amqp.js'));
@@ -43,6 +51,8 @@ beforeAll(async () => {
   ({ publishWebhook } = await import('../../src/api/publisher.js'));
   ({ startConsumer, stopConsumer } = await import('../../src/worker/consumer.js'));
   ({ dispatch } = await import('../../src/worker/dispatcher.js'));
+  ({ enqueue } = await import('../../src/db/taskQueue.js'));
+  ({ getPool } = await import('../../src/shared/db.js'));
 
   destBehavior = {};
   destServer = http.createServer((req, res) => {
@@ -77,6 +87,7 @@ afterAll(async () => {
   await closeAmqp();
   await new Promise((resolve) => destServer.close(resolve));
   await container.stop();
+  await pgContainer.stop();
 }, 30000);
 
 async function queueDepth(name) {
@@ -107,6 +118,11 @@ function baseMessage(url) {
     attempt: 0,
     createdAt: new Date().toISOString(),
   };
+}
+
+async function taskRow(id) {
+  const { rows } = await getPool().query('SELECT * FROM tasks WHERE id = $1', [id]);
+  return rows[0] ?? null;
 }
 
 describe('fluxo completo do webhook contra RabbitMQ real', () => {
@@ -246,4 +262,51 @@ describe('fluxo completo do webhook contra RabbitMQ real', () => {
     expect(arrivalOrder).toEqual([4, 3, 2, 1, 0]); // inverteu, como o delay desenhado previa
     expect(new Set(arrivalOrder).size).toBe(N); // todas chegaram, nenhuma perdida
   }, 20000);
+});
+
+describe('desfecho da tarefa espelhado no PostgreSQL', () => {
+  test('entrega bem-sucedida marca a tarefa como concluída no banco', async () => {
+    destBehavior['/pg-sucesso'] = { status: 200 };
+    const task = await enqueue({
+      queueName: 'webhooks',
+      payload: { origem: 'teste-e2e-pg' },
+    });
+    const message = {
+      ...baseMessage(`http://127.0.0.1:${destPort}/pg-sucesso`),
+      messageId: task.id,
+    };
+
+    await publishWebhook(message);
+
+    await waitUntil(async () => (await taskRow(task.id)).status === 'concluido', {
+      timeoutMs: 8000,
+    });
+
+    const row = await taskRow(task.id);
+    expect(row.status).toBe('concluido');
+    expect(row.result).toEqual({ status: 200, latencyMs: expect.any(Number) });
+  });
+
+  test('esgotar as tentativas e cair na DLQ marca a tarefa como morta no banco, com o erro', async () => {
+    destBehavior['/pg-morre'] = { status: 500 };
+    const task = await enqueue({
+      queueName: 'webhooks',
+      payload: { origem: 'teste-e2e-pg' },
+    });
+    const message = { ...baseMessage(`http://127.0.0.1:${destPort}/pg-morre`), messageId: task.id };
+
+    await publishWebhook(message);
+
+    await waitUntil(async () => (await queueDepth(QUEUES.dlq)) === 1, { timeoutMs: 8000 });
+    // Drena a DLQ pra não vazar pro próximo teste da suíte.
+    const ch = await getChannel();
+    await ch.get(QUEUES.dlq, { noAck: true });
+    await ch.close();
+
+    await waitUntil(async () => (await taskRow(task.id)).status === 'morto', { timeoutMs: 8000 });
+
+    const row = await taskRow(task.id);
+    expect(row.status).toBe('morto');
+    expect(row.error_message).toBe('HTTP 500');
+  });
 });

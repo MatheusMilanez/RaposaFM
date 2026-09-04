@@ -31,6 +31,7 @@ export default {
     'src/shared/db.js',
     'src/db/migrate.js',
     'src/db/taskQueue.js',
+    'src/db/cleanup.js',
   ],
   coverageThreshold: {
     global: {

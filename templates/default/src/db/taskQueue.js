@@ -131,3 +131,26 @@ export async function failTask({ id, errorMessage }) {
 
   return rows[0] ?? null;
 }
+
+/**
+ * Marca uma tarefa como definitivamente falha, sem checar tentativas —
+ * para quando quem chama já sabe que a decisão é final (o worker do
+ * RabbitMQ, por exemplo, decide retry vs. DLQ pelo próprio backoff e só
+ * chama isso ao enviar para a DLQ). Diferente de failTask(), não olha
+ * attempts/max_attempts: nunca devolve a tarefa para pendente.
+ */
+export async function markTaskDead({ id, errorMessage }) {
+  const pool = getPool();
+
+  const { rows } = await pool.query(
+    `UPDATE tasks
+        SET status = 'morto',
+            error_message = $2,
+            updated_at = now()
+      WHERE id = $1
+      RETURNING *`,
+    [id, errorMessage]
+  );
+
+  return rows[0] ?? null;
+}

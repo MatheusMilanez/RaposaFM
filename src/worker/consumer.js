@@ -4,6 +4,26 @@ import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 import { dispatch } from './dispatcher.js';
 import { decideOutcome, publishToDlq, publishToWait } from './retryPolicy.js';
+import { completeTask, markTaskDead } from '../db/taskQueue.js';
+
+/**
+ * Registra o desfecho da tarefa no PostgreSQL (M9) — quem decide
+ * retry vs. DLQ continua sendo o RabbitMQ (decideOutcome/backoff), isso
+ * aqui só espelha a decisão final na linha da tabela `tasks`. Nunca deve
+ * afetar o ack/retry da mensagem: falhar em gravar no banco não pode
+ * causar reentrega ao destino, que já recebeu (ou definitivamente não
+ * vai receber) o webhook.
+ */
+async function recordOutcome(fn, { messageId, ...fields }) {
+  try {
+    await fn({ id: messageId, ...fields });
+  } catch (err) {
+    logger.error('worker: falha ao registrar o desfecho da tarefa no banco', {
+      messageId,
+      error: err.message,
+    });
+  }
+}
 
 let channel = null;
 let consumerTag = null;
@@ -29,6 +49,10 @@ export async function handleMessage(ch, msg) {
     const result = await dispatch(message);
 
     if (result.outcome === 'success') {
+      await recordOutcome(completeTask, {
+        messageId: message.messageId,
+        result: { status: result.status, latencyMs: result.latencyMs },
+      });
       ch.ack(msg);
       return;
     }
@@ -38,6 +62,10 @@ export async function handleMessage(ch, msg) {
       await publishToWait(ch, message, result, decision);
     } else {
       await publishToDlq(ch, message, result, { attempt: decision.nextAttempt });
+      await recordOutcome(markTaskDead, {
+        messageId: message.messageId,
+        errorMessage: result.error,
+      });
       logger.warn('worker: mensagem enviada para a DLQ', {
         messageId: message.messageId,
         motivo: decision.reason,

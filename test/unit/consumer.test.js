@@ -6,6 +6,15 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals';
 const dispatchMock = jest.fn();
 jest.unstable_mockModule('../../src/worker/dispatcher.js', () => ({ dispatch: dispatchMock }));
 
+// completeTask/markTaskDead (M9): nenhum Postgres real entra em cena
+// aqui — a suíte real contra banco é test/e2e/webhook-flow.test.js.
+const completeTaskMock = jest.fn();
+const markTaskDeadMock = jest.fn();
+jest.unstable_mockModule('../../src/db/taskQueue.js', () => ({
+  completeTask: completeTaskMock,
+  markTaskDead: markTaskDeadMock,
+}));
+
 const { handleMessage } = await import('../../src/worker/consumer.js');
 
 // publishConfirmed() (usado por publishToWait/publishToDlq) chama
@@ -27,10 +36,14 @@ function fakeMsg(message) {
 }
 
 describe('handleMessage', () => {
-  beforeEach(() => dispatchMock.mockReset());
+  beforeEach(() => {
+    dispatchMock.mockReset();
+    completeTaskMock.mockReset().mockResolvedValue({});
+    markTaskDeadMock.mockReset().mockResolvedValue({});
+  });
 
-  test('sucesso: confirma a mensagem, não publica em lugar nenhum', async () => {
-    dispatchMock.mockResolvedValue({ outcome: 'success', status: 200 });
+  test('sucesso: confirma a mensagem, não publica em lugar nenhum, registra completeTask', async () => {
+    dispatchMock.mockResolvedValue({ outcome: 'success', status: 200, latencyMs: 42 });
     const ch = fakeChannel();
     const msg = fakeMsg({ messageId: 'm1', attempt: 0 });
 
@@ -38,6 +51,21 @@ describe('handleMessage', () => {
 
     expect(ch.ack).toHaveBeenCalledWith(msg);
     expect(ch.publish).not.toHaveBeenCalled();
+    expect(completeTaskMock).toHaveBeenCalledWith({
+      id: 'm1',
+      result: { status: 200, latencyMs: 42 },
+    });
+    expect(markTaskDeadMock).not.toHaveBeenCalled();
+  });
+
+  test('completeTask falhando (banco indisponível) não impede o ack — evita reentrega ao destino', async () => {
+    dispatchMock.mockResolvedValue({ outcome: 'success', status: 200 });
+    completeTaskMock.mockRejectedValueOnce(new Error('sem conexão ativa com o PostgreSQL'));
+    const ch = fakeChannel();
+    const msg = fakeMsg({ messageId: 'm1b', attempt: 0 });
+
+    await expect(handleMessage(ch, msg)).resolves.toBeUndefined();
+    expect(ch.ack).toHaveBeenCalledWith(msg);
   });
 
   test('falha retryable dentro do limite: publica na fila de espera com a próxima tentativa', async () => {
@@ -58,9 +86,12 @@ describe('handleMessage', () => {
     const published = JSON.parse(ch.publish.mock.calls[0][2].toString());
     expect(published.attempt).toBe(1);
     expect(ch.ack).toHaveBeenCalledWith(msg);
+    // ainda pode tentar de novo — a tarefa não é dada como morta no banco.
+    expect(markTaskDeadMock).not.toHaveBeenCalled();
+    expect(completeTaskMock).not.toHaveBeenCalled();
   });
 
-  test('falha permanente: publica na DLQ preservando o attempt original', async () => {
+  test('falha permanente: publica na DLQ preservando o attempt original e registra markTaskDead', async () => {
     dispatchMock.mockResolvedValue({
       outcome: 'failure',
       retryable: false,
@@ -74,6 +105,7 @@ describe('handleMessage', () => {
 
     const published = JSON.parse(ch.publish.mock.calls[0][2].toString());
     expect(published.attempt).toBe(0);
+    expect(markTaskDeadMock).toHaveBeenCalledWith({ id: 'm3', errorMessage: 'HTTP 404' });
   });
 
   test('esgota MAX_RETRIES: DLQ recebe o attempt final correto (regressão de wiring consumer.js↔retryPolicy.js)', async () => {
@@ -96,6 +128,7 @@ describe('handleMessage', () => {
 
     const published = JSON.parse(ch.publish.mock.calls[0][2].toString());
     expect(published.attempt).toBe(5);
+    expect(markTaskDeadMock).toHaveBeenCalledWith({ id: 'm4', errorMessage: 'HTTP 500' });
   });
 
   test('mensagem malformada é descartada sem chamar dispatch nem derrubar o worker', async () => {

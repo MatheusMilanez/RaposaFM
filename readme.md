@@ -103,6 +103,10 @@ Tudo em [`.env.example`](.env.example). `RABBITMQ_URL` e `DATABASE_URL` são obr
 | `RETRY_BACKOFF_MS`           | `60000,300000,900000` | Degraus do backoff, em ms                                              |
 | `LOG_LEVEL`                  | `info`                | `debug` \| `info` \| `warn` \| `error`                                 |
 
+### Limpeza de tarefas órfãs
+
+O worker fecha o ciclo de vida de toda tarefa que chega a ser publicada no RabbitMQ (`concluido` no sucesso, `morto` na DLQ). A única forma de uma linha ficar presa em `pendente` para sempre é o Postgres confirmar o `enqueue()` e o RabbitMQ estar fora do ar bem no instante seguinte — nesse caso raro, nada nunca vai processá-la. `npm run cleanup` remove tarefas com mais de 7 dias (configurável: `npm run cleanup -- 86400000`, em ms) independente do status. Não existe agendador embutido no projeto — rode via cron do host, CronJob do Kubernetes, etc.
+
 ### Sem Docker
 
 Com o RabbitMQ e o PostgreSQL no ar (`docker compose up -d rabbitmq postgres`):

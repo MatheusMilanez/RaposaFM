@@ -11,7 +11,8 @@
     "start:api": "node src/api/server.js",
     "start:worker": "node src/worker/index.js",
     "migrate:up": "node src/db/migrate.js up",
-    "migrate:down": "node src/db/migrate.js down"
+    "migrate:down": "node src/db/migrate.js down",
+    "cleanup": "node src/db/cleanup.js"
   },
   "license": "MIT",
   "dependencies": {

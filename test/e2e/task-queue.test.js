@@ -15,6 +15,7 @@ let enqueue;
 let dequeue;
 let completeTask;
 let failTask;
+let deleteStaleTasks;
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -27,6 +28,7 @@ beforeAll(async () => {
   await runMigrations('up');
 
   ({ enqueue, dequeue, completeTask, failTask } = await import('../../src/db/taskQueue.js'));
+  ({ deleteStaleTasks } = await import('../../src/db/cleanup.js'));
   ({ getPool, closePool } = await import('../../src/shared/db.js'));
 }, 60000);
 
@@ -262,5 +264,41 @@ describe('idempotência e disputa entre workers sob concorrência real (#48)', (
     const capturedIds = captured.map((task) => task.id);
     expect(new Set(capturedIds).size).toBe(TASKS); // sem duplicatas entre os workers
     expect(new Set(capturedIds)).toEqual(new Set(enqueued.map((task) => task.id)));
+  });
+});
+
+async function ageTask(id, ms) {
+  await getPool().query(
+    `UPDATE tasks SET updated_at = now() - ($2 * interval '1 millisecond') WHERE id = $1`,
+    [id, ms]
+  );
+}
+
+describe('deleteStaleTasks (limpeza de tarefas órfãs)', () => {
+  test('remove tarefas mais velhas que o limite, preserva as recentes', async () => {
+    const velha = await enqueue({ queueName: 'fila-limpeza', payload: { orfa: true } });
+    const recente = await enqueue({ queueName: 'fila-limpeza', payload: { orfa: false } });
+    await ageTask(velha.id, 8 * 24 * 60 * 60 * 1000); // 8 dias
+
+    const removed = await deleteStaleTasks({ olderThanMs: 7 * 24 * 60 * 60 * 1000 });
+
+    expect(removed).toBeGreaterThanOrEqual(1);
+    const { rows: velhaRows } = await getPool().query('SELECT 1 FROM tasks WHERE id = $1', [
+      velha.id,
+    ]);
+    expect(velhaRows).toHaveLength(0);
+    const { rows: recenteRows } = await getPool().query('SELECT 1 FROM tasks WHERE id = $1', [
+      recente.id,
+    ]);
+    expect(recenteRows).toHaveLength(1);
+  });
+
+  test('limite padrão não remove uma tarefa criada agora', async () => {
+    const task = await enqueue({ queueName: 'fila-limpeza-padrao', payload: {} });
+
+    await deleteStaleTasks();
+
+    const { rows } = await getPool().query('SELECT 1 FROM tasks WHERE id = $1', [task.id]);
+    expect(rows).toHaveLength(1);
   });
 });
