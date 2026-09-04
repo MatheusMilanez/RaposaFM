@@ -92,6 +92,13 @@ describe('raposafm init (#25)', () => {
     expect(generated).toMatch(
       new RegExp(`^RABBITMQ_URL=amqp://${user}:${password}@localhost:5672$`, 'm')
     );
+
+    const pgUser = generated.match(/^POSTGRES_USER=(.+)$/m)[1];
+    const pgPassword = generated.match(/^POSTGRES_PASSWORD=(.+)$/m)[1];
+    expect(pgPassword).not.toBe('changeme');
+    expect(generated).toMatch(
+      new RegExp(`^DATABASE_URL=postgres://${pgUser}:${pgPassword}@localhost:5432/raposafm$`, 'm')
+    );
   });
 
   test('package-lock.json de verdade foi gerado (npm ci não quebra)', () => {
@@ -153,6 +160,22 @@ describe('--yes usa senha aleatória', () => {
 
     const passwordA = passwordOf('senha-a');
     const passwordB = passwordOf('senha-b');
+
+    expect(passwordA).not.toBe(passwordB);
+    expect(passwordA.length).toBeGreaterThanOrEqual(8);
+  }, 30000);
+
+  test('duas execuções geram senhas do PostgreSQL diferentes', async () => {
+    await runInit(['senha-pg-a', '--yes']);
+    await runInit(['senha-pg-b', '--yes']);
+
+    const passwordOf = (name) => {
+      const env = readFileSync(path.join(baseDir, name, '.env'), 'utf8');
+      return env.match(/^POSTGRES_PASSWORD=(.+)$/m)[1];
+    };
+
+    const passwordA = passwordOf('senha-pg-a');
+    const passwordB = passwordOf('senha-pg-b');
 
     expect(passwordA).not.toBe(passwordB);
     expect(passwordA.length).toBeGreaterThanOrEqual(8);

@@ -14,6 +14,16 @@ jest.unstable_mockModule('../../src/shared/amqp.js', () => ({
   publishConfirmed: jest.fn(),
 }));
 
+// src/api/server.js também importa closePool de db.js — mockado aqui
+// pelo mesmo motivo, nenhum Postgres real entra em cena neste teste.
+const pingDbMock = jest.fn();
+
+jest.unstable_mockModule('../../src/shared/db.js', () => ({
+  pingDb: pingDbMock,
+  getPool: jest.fn(),
+  closePool: jest.fn(),
+}));
+
 let buildServer;
 let app;
 
@@ -31,17 +41,37 @@ afterEach(async () => {
 });
 
 describe('GET /health', () => {
-  test('broker conectado responde 200', async () => {
+  test('broker e banco conectados responde 200', async () => {
     isAmqpConnectedMock.mockReturnValue(true);
+    pingDbMock.mockResolvedValue(true);
+
     const res = await request(app.server).get('/health');
+
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ status: 'ok', rabbitmq: 'connected' });
+    expect(res.body).toMatchObject({
+      status: 'ok',
+      rabbitmq: 'connected',
+      database: 'connected',
+    });
   });
 
-  test('broker desconectado responde 503', async () => {
+  test('broker desconectado responde 503, mesmo com o banco ok', async () => {
     isAmqpConnectedMock.mockReturnValue(false);
+    pingDbMock.mockResolvedValue(true);
+
     const res = await request(app.server).get('/health');
+
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ status: 'unavailable', rabbitmq: 'disconnected' });
+  });
+
+  test('banco desconectado responde 503, mesmo com o broker ok', async () => {
+    isAmqpConnectedMock.mockReturnValue(true);
+    pingDbMock.mockResolvedValue(false);
+
+    const res = await request(app.server).get('/health');
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ status: 'unavailable', database: 'disconnected' });
   });
 });

@@ -28,8 +28,8 @@ async function ask(rl, question, fallback) {
 
 /**
  * Fluxo do `raposafm init`. Só pergunta o essencial — nome do projeto,
- * porta da API, usuário e senha do RabbitMQ. O resto vem dos padrões
- * do próprio .env.example, ajustável depois na mão.
+ * porta da API, usuário e senha do RabbitMQ e do PostgreSQL. O resto
+ * vem dos padrões do próprio .env.example, ajustável depois na mão.
  */
 export async function runInit(args) {
   const { yes, force, projectNameArg } = parseArgs(args);
@@ -42,6 +42,8 @@ export async function runInit(args) {
       apiPort: '3000',
       rabbitUser: 'raposafm',
       rabbitPassword: randomPassword(),
+      postgresUser: 'raposafm',
+      postgresPassword: randomPassword(),
     };
   } else {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -50,7 +52,16 @@ export async function runInit(args) {
       const apiPort = await ask(rl, 'Porta da API', '3000');
       const rabbitUser = await ask(rl, 'Usuário do RabbitMQ', 'raposafm');
       const rabbitPassword = await ask(rl, 'Senha do RabbitMQ', randomPassword());
-      answers = { projectName, apiPort, rabbitUser, rabbitPassword };
+      const postgresUser = await ask(rl, 'Usuário do PostgreSQL', 'raposafm');
+      const postgresPassword = await ask(rl, 'Senha do PostgreSQL', randomPassword());
+      answers = {
+        projectName,
+        apiPort,
+        rabbitUser,
+        rabbitPassword,
+        postgresUser,
+        postgresPassword,
+      };
     } finally {
       rl.close();
     }

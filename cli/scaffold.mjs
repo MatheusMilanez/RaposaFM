@@ -54,5 +54,11 @@ function buildEnv(targetDir, answers) {
       /^RABBITMQ_URL=.*/m,
       `RABBITMQ_URL=amqp://${answers.rabbitUser}:${answers.rabbitPassword}@localhost:5672`
     )
+    .replace(/^POSTGRES_USER=.*/m, `POSTGRES_USER=${answers.postgresUser}`)
+    .replace(/^POSTGRES_PASSWORD=.*/m, `POSTGRES_PASSWORD=${answers.postgresPassword}`)
+    .replace(
+      /^DATABASE_URL=.*/m,
+      `DATABASE_URL=postgres://${answers.postgresUser}:${answers.postgresPassword}@localhost:5432/raposafm`
+    )
     .replace(/^API_PORT=.*/m, `API_PORT=${answers.apiPort}`);
 }

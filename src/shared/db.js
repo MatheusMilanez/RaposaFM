@@ -32,3 +32,17 @@ export async function closePool() {
     await current.end();
   }
 }
+
+/**
+ * Testa a conexão com uma query mínima. Usado pelo /health — diferente
+ * do AMQP, o pool não mantém um estado de "conectado" pra consultar
+ * de graça, então isso sempre bate no Postgres de verdade.
+ */
+export async function pingDb() {
+  try {
+    await getPool().query('SELECT 1');
+    return true;
+  } catch {
+    return false;
+  }
+}
