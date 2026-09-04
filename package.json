@@ -1,6 +1,6 @@
 {
   "name": "raposafm",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Despachante de webhooks assíncrono, leve e self-hosted.",
   "type": "module",
   "engines": {
