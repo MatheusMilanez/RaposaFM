@@ -29,6 +29,7 @@ const composeEnv = {
   ...process.env,
   RABBITMQ_USER: 'raposafm',
   RABBITMQ_PASSWORD: 'smoketest',
+  POSTGRES_PASSWORD: 'smoketest',
   API_PORT: String(API_PORT),
 };
 

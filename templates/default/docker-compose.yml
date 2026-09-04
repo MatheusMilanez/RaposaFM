@@ -28,6 +28,24 @@ services:
       retries: 5
       start_period: 20s
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-raposafm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no seu .env}
+      POSTGRES_DB: ${POSTGRES_DB:-raposafm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-raposafm}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   api:
     build: .
     command: node src/api/server.js
@@ -62,3 +80,4 @@ services:
 
 volumes:
   rabbitmq_data:
+  postgres_data:

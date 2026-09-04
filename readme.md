@@ -47,6 +47,8 @@ Quando a entrega falha, o worker classifica o erro. Falha transitória (5xx, tim
 | API         | Fastify                             |
 | Broker      | RabbitMQ 3                          |
 | Driver AMQP | `amqplib`                           |
+| Persistência | PostgreSQL 16                      |
+| Driver SQL  | `pg`                                |
 | Testes      | Jest, Supertest, Testcontainers, k6 |
 | CI          | GitHub Actions                      |
 | Infra local | Docker Compose                      |
@@ -56,8 +58,9 @@ Quando a entrega falha, o worker classifica o erro. Falha transitória (5xx, tim
 Pré-requisitos: Docker, Docker Compose e Node 18+.
 
 ```bash
-cp .env.example .env   # ajuste a senha do RabbitMQ
-docker compose up -d   # sobe RabbitMQ, API e worker
+cp .env.example .env   # ajuste a senha do RabbitMQ e do PostgreSQL
+docker compose up -d   # sobe RabbitMQ, PostgreSQL, API e worker
+npm run migrate:up     # cria o schema (tabela de tarefas) no PostgreSQL
 curl http://localhost:3000/health
 ```
 
@@ -86,6 +89,10 @@ Tudo em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória — o
 | `RABBITMQ_USER`              | `raposafm`            | Usuário criado no container do RabbitMQ                                |
 | `RABBITMQ_PASSWORD`          | — (obrigatória)       | Sem valor fixo de propósito                                            |
 | `RABBITMQ_URL`               | — (obrigatória)       | String de conexão AMQP                                                 |
+| `POSTGRES_USER`              | `raposafm`            | Usuário criado no container do PostgreSQL                              |
+| `POSTGRES_PASSWORD`          | — (obrigatória)       | Sem valor fixo de propósito                                            |
+| `POSTGRES_DB`                | `raposafm`            | Banco criado no container do PostgreSQL                                |
+| `DATABASE_URL`               | — (obrigatória)       | String de conexão usada pelo runner de migrações                      |
 | `API_PORT`                   | `3000`                | Porta da API                                                           |
 | `ALLOW_PRIVATE_NETWORK_URLS` | `false`               | Libera webhook pra IP privado/localhost — só em dev, nunca em produção |
 | `WORKER_PREFETCH`            | `10`                  | Mensagens em paralelo por worker                                       |

@@ -29,16 +29,20 @@
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.e2e.config.js --runInBand",
     "test:load": "node scripts/load/run.mjs ingest",
     "test:stress": "node scripts/load/run.mjs stress",
-    "check:template-sync": "node scripts/check-template-sync.mjs"
+    "check:template-sync": "node scripts/check-template-sync.mjs",
+    "migrate:up": "node src/db/migrate.js up",
+    "migrate:down": "node src/db/migrate.js down"
   },
   "license": "MIT",
   "dependencies": {
     "amqplib": "^2.0.1",
     "dotenv": "^17.4.2",
-    "fastify": "^5.12.1"
+    "fastify": "^5.12.1",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testcontainers/postgresql": "^12.1.0",
     "@testcontainers/rabbitmq": "^12.1.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
