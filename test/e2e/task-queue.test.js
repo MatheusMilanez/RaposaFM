@@ -12,6 +12,8 @@ let container;
 let closePool;
 let enqueue;
 let dequeue;
+let completeTask;
+let failTask;
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -23,7 +25,7 @@ beforeAll(async () => {
   const { runMigrations } = await import('../../src/db/migrate.js');
   await runMigrations('up');
 
-  ({ enqueue, dequeue } = await import('../../src/db/taskQueue.js'));
+  ({ enqueue, dequeue, completeTask, failTask } = await import('../../src/db/taskQueue.js'));
   ({ closePool } = await import('../../src/shared/db.js'));
 }, 60000);
 
@@ -149,5 +151,59 @@ describe('dequeue (#46)', () => {
 
     // fila esgotada: uma chamada a mais não encontra nada pendente nem duplicado
     expect(await dequeue({ queueName: 'fila-h' })).toBeNull();
+  });
+});
+
+describe('completeTask / failTask (#47)', () => {
+  test('completeTask grava o resultado e conclui a tarefa', async () => {
+    const task = await enqueue({ queueName: 'fila-i', payload: { n: 1 } });
+    const captured = await dequeue({ queueName: 'fila-i' });
+
+    const done = await completeTask({ id: captured.id, result: { ok: true } });
+
+    expect(done.status).toBe('concluido');
+    expect(done.result).toEqual({ ok: true });
+    expect(new Date(done.updated_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(captured.updated_at).getTime()
+    );
+    expect(task.id).toBe(done.id);
+  });
+
+  test('failTask devolve a tarefa para pendente quando ainda há tentativas disponíveis', async () => {
+    const task = await enqueue({ queueName: 'fila-j', payload: {}, maxAttempts: 3 });
+    const captured = await dequeue({ queueName: 'fila-j' }); // attempts vira 1, max_attempts 3
+
+    const failed = await failTask({ id: task.id, errorMessage: 'timeout' });
+
+    expect(failed.status).toBe('pendente');
+    expect(failed.error_message).toBe('timeout');
+    expect(failed.attempts).toBe(1);
+    expect(new Date(failed.updated_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(captured.updated_at).getTime()
+    );
+  });
+
+  test('failTask move a tarefa para morto quando o limite de tentativas se esgota', async () => {
+    const task = await enqueue({ queueName: 'fila-k', payload: {}, maxAttempts: 1 });
+    await dequeue({ queueName: 'fila-k' }); // attempts vira 1, igual ao max_attempts
+
+    const failed = await failTask({ id: task.id, errorMessage: 'sempre falha' });
+
+    expect(failed.status).toBe('morto');
+    expect(failed.error_message).toBe('sempre falha');
+  });
+
+  test('tarefa que falha e depois é recapturada pode concluir com sucesso na tentativa seguinte', async () => {
+    const task = await enqueue({ queueName: 'fila-l', payload: {}, maxAttempts: 3 });
+    await dequeue({ queueName: 'fila-l' });
+    await failTask({ id: task.id, errorMessage: 'falha transitória' });
+
+    const recaptured = await dequeue({ queueName: 'fila-l' });
+    expect(recaptured.id).toBe(task.id);
+    expect(recaptured.attempts).toBe(2);
+
+    const done = await completeTask({ id: task.id, result: { tentativa: 2 } });
+    expect(done.status).toBe('concluido');
+    expect(done.result).toEqual({ tentativa: 2 });
   });
 });

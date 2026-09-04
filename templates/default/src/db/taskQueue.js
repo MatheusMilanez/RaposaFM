@@ -82,3 +82,46 @@ export async function dequeue({ queueName }) {
 
   return rows[0] ?? null;
 }
+
+/**
+ * Marca uma tarefa como concluída com sucesso, gravando o resultado.
+ */
+export async function completeTask({ id, result }) {
+  const pool = getPool();
+
+  const { rows } = await pool.query(
+    `UPDATE tasks
+        SET status = 'concluido',
+            result = $2,
+            updated_at = now()
+      WHERE id = $1
+      RETURNING *`,
+    [id, JSON.stringify(result)]
+  );
+
+  return rows[0] ?? null;
+}
+
+/**
+ * Registra a falha de uma tarefa e decide seu próximo estado: volta
+ * para `pendente` (nova tentativa) se `attempts` ainda não atingiu
+ * `max_attempts` — ambos já refletem a tentativa atual, incrementada
+ * pelo dequeue() — ou vai para o estado terminal `morto` quando o
+ * limite foi esgotado. A decisão é feita num único UPDATE (CASE sobre
+ * as colunas da própria linha), sem ler o estado antes para decidir.
+ */
+export async function failTask({ id, errorMessage }) {
+  const pool = getPool();
+
+  const { rows } = await pool.query(
+    `UPDATE tasks
+        SET status = CASE WHEN attempts >= max_attempts THEN 'morto' ELSE 'pendente' END::task_status,
+            error_message = $2,
+            updated_at = now()
+      WHERE id = $1
+      RETURNING *`,
+    [id, errorMessage]
+  );
+
+  return rows[0] ?? null;
+}
