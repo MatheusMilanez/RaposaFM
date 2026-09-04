@@ -37,6 +37,8 @@ Webhook direto quebra fácil: a rede cai, o destino está fora do ar, o servidor
 
 A API só garante que o evento foi recebido com segurança — quem entrega de fato é o worker, rodando à parte. Isso é o que permite responder em milissegundos mesmo quando o destino está lento ou fora do ar: a ingestão nunca espera a entrega terminar.
 
+Antes de publicar, a API registra a tarefa no PostgreSQL (motor de idempotência, M9). Um header `Idempotency-Key` opcional protege contra reentrega quando o mesmo pedido chega mais de uma vez — retry de rede do lado de quem chama, por exemplo: a chave já vista faz a API responder com o `messageId` da tarefa original, sem publicar (nem entregar) de novo.
+
 Quando a entrega falha, o worker classifica o erro. Falha transitória (5xx, timeout, conexão recusada) entra num ciclo de espera crescente — 1 minuto, depois 5, depois 15 — usando o próprio TTL do RabbitMQ pra isso, sem nenhum `setTimeout` no código. Falha permanente (um 4xx, por exemplo) vai direto pra fila de cartas mortas, sem insistir num erro que já foi respondido como definitivo.
 
 ## Stack
@@ -59,8 +61,7 @@ Pré-requisitos: Docker, Docker Compose e Node 18+.
 
 ```bash
 cp .env.example .env   # ajuste a senha do RabbitMQ e do PostgreSQL
-docker compose up -d   # sobe RabbitMQ, PostgreSQL, API e worker
-npm run migrate:up     # cria o schema (tabela de tarefas) no PostgreSQL
+docker compose up -d   # sobe RabbitMQ, PostgreSQL (com o schema já migrado), API e worker
 curl http://localhost:3000/health
 ```
 
@@ -75,14 +76,15 @@ Testando a ingestão:
 ```bash
 curl -X POST http://localhost:3000/api/v1/webhooks \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: chave-opcional-do-seu-lado" \
   -d '{"url": "https://httpbin.org/status/200", "payload": {"evento": "teste"}}'
 ```
 
-Deve voltar `202` com um `messageId`. Pra acompanhar a entrega, `docker compose logs worker -f`, ou o painel do RabbitMQ em [localhost:15672](http://localhost:15672).
+Deve voltar `202` com um `messageId`. Repetir a mesma chamada com o mesmo `Idempotency-Key` responde com o `messageId` da tentativa original, sem publicar (nem entregar) de novo. Pra acompanhar a entrega, `docker compose logs worker -f`, ou o painel do RabbitMQ em [localhost:15672](http://localhost:15672).
 
 ### Variáveis de ambiente
 
-Tudo em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória — o resto tem padrão.
+Tudo em [`.env.example`](.env.example). `RABBITMQ_URL` e `DATABASE_URL` são obrigatórias — o resto tem padrão.
 
 | Variável                     | Padrão                | O que faz                                                              |
 | ---------------------------- | --------------------- | ---------------------------------------------------------------------- |
@@ -92,7 +94,7 @@ Tudo em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória — o
 | `POSTGRES_USER`              | `raposafm`            | Usuário criado no container do PostgreSQL                              |
 | `POSTGRES_PASSWORD`          | — (obrigatória)       | Sem valor fixo de propósito                                            |
 | `POSTGRES_DB`                | `raposafm`            | Banco criado no container do PostgreSQL                                |
-| `DATABASE_URL`               | — (obrigatória)       | String de conexão usada pelo runner de migrações                       |
+| `DATABASE_URL`               | — (obrigatória)       | String de conexão usada pela API e pelo runner de migrações            |
 | `API_PORT`                   | `3000`                | Porta da API                                                           |
 | `ALLOW_PRIVATE_NETWORK_URLS` | `false`               | Libera webhook pra IP privado/localhost — só em dev, nunca em produção |
 | `WORKER_PREFETCH`            | `10`                  | Mensagens em paralelo por worker                                       |
@@ -103,10 +105,11 @@ Tudo em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória — o
 
 ### Sem Docker
 
-Com o RabbitMQ no ar (`docker compose up -d rabbitmq`):
+Com o RabbitMQ e o PostgreSQL no ar (`docker compose up -d rabbitmq postgres`):
 
 ```bash
 npm install
+npm run migrate:up   # cria o schema no PostgreSQL
 npm run start:api    # um terminal
 npm run start:worker # outro
 ```

@@ -44,6 +44,7 @@ describe('enqueue (#45)', () => {
     expect(task.payload).toEqual({ evento: 'sem-chave' });
     expect(task.status).toBe('pendente');
     expect(task.idempotency_key).toBeNull();
+    expect(task.created).toBe(true);
   });
 
   test('duas chamadas sem chave sempre criam tarefas diferentes', async () => {
@@ -81,6 +82,8 @@ describe('enqueue (#45)', () => {
     expect(second.id).toBe(first.id);
     expect(second.payload).toEqual({ tentativa: 1 });
     expect(second.status).toBe(first.status);
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
   });
 
   test('chamadas concorrentes com a mesma chave resolvem para uma única tarefa', async () => {
@@ -220,9 +223,14 @@ describe('idempotência e disputa entre workers sob concorrência real (#48)', (
       )
     );
 
+    // exatamente uma chamada "ganhou a corrida" e criou a linha; todas
+    // as outras enxergam a mesma tarefa (mesmo id, mesmo conteúdo).
     const [first, ...rest] = results;
+    expect(results.filter((task) => task.created)).toHaveLength(1);
     for (const task of rest) {
-      expect(task).toEqual(first);
+      expect(task.id).toBe(first.id);
+      expect(task.payload).toEqual(first.payload);
+      expect(task.status).toBe(first.status);
     }
 
     const { rows } = await getPool().query(

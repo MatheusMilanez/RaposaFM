@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { config } from '../shared/config.js';
 import { startAmqp, closeAmqp } from '../shared/amqp.js';
+import { closePool } from '../shared/db.js';
 import healthRoutes from './routes/health.js';
 import webhooksRoutes from './routes/webhooks.js';
 
@@ -38,6 +39,7 @@ async function start() {
     app.log.info(`recebido ${signal}, encerrando`);
     await app.close();
     await closeAmqp();
+    await closePool();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

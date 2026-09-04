@@ -24,6 +24,12 @@ import { getPool } from '../shared/db.js';
  *
  * Chamadas sem idempotencyKey nunca conflitam (NULL não é igual a NULL
  * em uma constraint única) e sempre criam uma tarefa nova.
+ *
+ * O retorno inclui `created`: `true` quando esta chamada foi quem
+ * inseriu a linha, `false` quando encontrou uma tarefa já existente com
+ * a mesma chave. Quem chama usa isso pra decidir se precisa (re)disparar
+ * algum efeito colateral de "tarefa nova" (como publicar no broker) ou
+ * não.
  */
 export async function enqueue({ queueName, payload, idempotencyKey = null, maxAttempts = 5 }) {
   const pool = getPool();
@@ -37,13 +43,13 @@ export async function enqueue({ queueName, payload, idempotencyKey = null, maxAt
   );
 
   if (inserted.rows.length > 0) {
-    return inserted.rows[0];
+    return { ...inserted.rows[0], created: true };
   }
 
   const existing = await pool.query('SELECT * FROM tasks WHERE idempotency_key = $1', [
     idempotencyKey,
   ]);
-  return existing.rows[0];
+  return { ...existing.rows[0], created: false };
 }
 
 /**

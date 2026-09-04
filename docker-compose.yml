@@ -46,6 +46,16 @@ services:
       retries: 5
       start_period: 10s
 
+  migrate:
+    build: .
+    command: node src/db/migrate.js up
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-raposafm}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no seu .env}@postgres:5432/${POSTGRES_DB:-raposafm}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: .
     command: node src/api/server.js
@@ -63,6 +73,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build: .

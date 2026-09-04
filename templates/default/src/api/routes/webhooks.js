@@ -1,6 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { publishWebhook } from '../publisher.js';
 import { assertPublicUrl, SsrfError } from '../../shared/ssrfGuard.js';
+import { enqueue } from '../../db/taskQueue.js';
+
+const TASK_QUEUE_NAME = 'webhooks';
 
 const bodySchema = {
   type: 'object',
@@ -19,10 +21,18 @@ const bodySchema = {
 /**
  * POST /api/v1/webhooks — porta de entrada do sistema.
  *
- * Valida o payload, publica na fila de entrega e responde 202 em poucos
- * milissegundos. Não entrega o webhook aqui — isso é responsabilidade
- * do worker (M3). Se o broker estiver indisponível, responde 503 e
- * nunca 202: o cliente sabe que precisa tentar de novo.
+ * Valida o payload, registra a tarefa no PostgreSQL (motor de
+ * idempotência, M9) e publica na fila de entrega, respondendo 202 em
+ * poucos milissegundos. Não entrega o webhook aqui — isso é
+ * responsabilidade do worker (M3). Se o banco ou o broker estiverem
+ * indisponíveis, responde 503 e nunca 202: o cliente sabe que precisa
+ * tentar de novo.
+ *
+ * Um header `Idempotency-Key` opcional evita reentrega quando o mesmo
+ * pedido chega mais de uma vez (retry de rede do cliente, por exemplo):
+ * a chave já vista faz enqueue() devolver a tarefa original sem criar
+ * linha nova, e a rota pula a publicação — quem já foi aceito uma vez
+ * não é publicado de novo.
  *
  * A validação de URL inclui a defesa contra SSRF (esquema, IP privado,
  * DNS) — ver src/shared/ssrfGuard.js. O worker revalida de novo antes
@@ -32,6 +42,7 @@ const bodySchema = {
 export default async function webhooksRoutes(app) {
   app.post('/api/v1/webhooks', { schema: { body: bodySchema } }, async (request, reply) => {
     const { url, payload, headers } = request.body;
+    const idempotencyKey = request.headers['idempotency-key'] || null;
 
     try {
       await assertPublicUrl(url);
@@ -42,9 +53,26 @@ export default async function webhooksRoutes(app) {
       throw err;
     }
 
-    const messageId = randomUUID();
+    let task;
+    try {
+      task = await enqueue({
+        queueName: TASK_QUEUE_NAME,
+        payload: { url, payload, headers: headers || {} },
+        idempotencyKey,
+      });
+    } catch (err) {
+      request.log.error({ err }, 'falha ao registrar a tarefa no banco');
+      return reply.code(503).send({
+        error: 'banco de dados indisponível no momento, tente novamente em instantes',
+      });
+    }
+
+    if (!task.created) {
+      return reply.code(202).send({ messageId: task.id });
+    }
+
     const message = {
-      messageId,
+      messageId: task.id,
       url,
       payload,
       headers: headers || {},
@@ -61,6 +89,6 @@ export default async function webhooksRoutes(app) {
       });
     }
 
-    return reply.code(202).send({ messageId });
+    return reply.code(202).send({ messageId: task.id });
   });
 }
