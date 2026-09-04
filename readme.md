@@ -41,17 +41,17 @@ Quando a entrega falha, o worker classifica o erro. Falha transitória (5xx, tim
 
 ## Stack
 
-| Camada      | Ferramenta                          |
-| ----------- | ----------------------------------- |
-| Runtime     | Node.js 18+, ESM                    |
-| API         | Fastify                             |
-| Broker      | RabbitMQ 3                          |
-| Driver AMQP | `amqplib`                           |
-| Persistência | PostgreSQL 16                      |
-| Driver SQL  | `pg`                                |
-| Testes      | Jest, Supertest, Testcontainers, k6 |
-| CI          | GitHub Actions                      |
-| Infra local | Docker Compose                      |
+| Camada       | Ferramenta                          |
+| ------------ | ----------------------------------- |
+| Runtime      | Node.js 18+, ESM                    |
+| API          | Fastify                             |
+| Broker       | RabbitMQ 3                          |
+| Driver AMQP  | `amqplib`                           |
+| Persistência | PostgreSQL 16                       |
+| Driver SQL   | `pg`                                |
+| Testes       | Jest, Supertest, Testcontainers, k6 |
+| CI           | GitHub Actions                      |
+| Infra local  | Docker Compose                      |
 
 ## Rodando
 
@@ -92,7 +92,7 @@ Tudo em [`.env.example`](.env.example). Só `RABBITMQ_URL` é obrigatória — o
 | `POSTGRES_USER`              | `raposafm`            | Usuário criado no container do PostgreSQL                              |
 | `POSTGRES_PASSWORD`          | — (obrigatória)       | Sem valor fixo de propósito                                            |
 | `POSTGRES_DB`                | `raposafm`            | Banco criado no container do PostgreSQL                                |
-| `DATABASE_URL`               | — (obrigatória)       | String de conexão usada pelo runner de migrações                      |
+| `DATABASE_URL`               | — (obrigatória)       | String de conexão usada pelo runner de migrações                       |
 | `API_PORT`                   | `3000`                | Porta da API                                                           |
 | `ALLOW_PRIVATE_NETWORK_URLS` | `false`               | Libera webhook pra IP privado/localhost — só em dev, nunca em produção |
 | `WORKER_PREFETCH`            | `10`                  | Mensagens em paralelo por worker                                       |

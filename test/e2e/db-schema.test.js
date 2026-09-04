@@ -50,9 +50,10 @@ async function columnsOf(table) {
 }
 
 async function indexesOf(table) {
-  const { rows } = await client.query('SELECT indexname, indexdef FROM pg_indexes WHERE tablename = $1', [
-    table,
-  ]);
+  const { rows } = await client.query(
+    'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = $1',
+    [table]
+  );
   return Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
 }
 
