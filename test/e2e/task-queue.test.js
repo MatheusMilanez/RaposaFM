@@ -10,6 +10,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 
 let container;
 let closePool;
+let getPool;
 let enqueue;
 let dequeue;
 let completeTask;
@@ -26,7 +27,7 @@ beforeAll(async () => {
   await runMigrations('up');
 
   ({ enqueue, dequeue, completeTask, failTask } = await import('../../src/db/taskQueue.js'));
-  ({ closePool } = await import('../../src/shared/db.js'));
+  ({ getPool, closePool } = await import('../../src/shared/db.js'));
 }, 60000);
 
 afterAll(async () => {
@@ -205,5 +206,53 @@ describe('completeTask / failTask (#47)', () => {
     const done = await completeTask({ id: task.id, result: { tentativa: 2 } });
     expect(done.status).toBe('concluido');
     expect(done.result).toEqual({ tentativa: 2 });
+  });
+});
+
+describe('idempotência e disputa entre workers sob concorrência real (#48)', () => {
+  test('N requisições de enfileiramento em paralelo com a mesma chave persistem uma única linha, e todas retornam o mesmo registro', async () => {
+    const key = randomUUID();
+    const N = 25;
+
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        enqueue({ queueName: 'fila-idempotencia-48', payload: { i }, idempotencyKey: key })
+      )
+    );
+
+    const [first, ...rest] = results;
+    for (const task of rest) {
+      expect(task).toEqual(first);
+    }
+
+    const { rows } = await getPool().query(
+      'SELECT count(*)::int AS count FROM tasks WHERE idempotency_key = $1',
+      [key]
+    );
+    expect(rows[0].count).toBe(1);
+  });
+
+  test('mais workers concorrentes do que tarefas disponíveis: cada tarefa é entregue a exatamente um worker, nunca a dois', async () => {
+    const TASKS = 8;
+    const WORKERS = 20;
+
+    const enqueued = [];
+    for (let i = 0; i < TASKS; i++) {
+      enqueued.push(await enqueue({ queueName: 'fila-disputa-48', payload: { i } }));
+    }
+
+    const results = await Promise.all(
+      Array.from({ length: WORKERS }, () => dequeue({ queueName: 'fila-disputa-48' }))
+    );
+
+    const captured = results.filter((task) => task !== null);
+    const misses = results.filter((task) => task === null);
+
+    expect(captured).toHaveLength(TASKS);
+    expect(misses).toHaveLength(WORKERS - TASKS);
+
+    const capturedIds = captured.map((task) => task.id);
+    expect(new Set(capturedIds).size).toBe(TASKS); // sem duplicatas entre os workers
+    expect(new Set(capturedIds)).toEqual(new Set(enqueued.map((task) => task.id)));
   });
 });
