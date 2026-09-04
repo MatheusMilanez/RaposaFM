@@ -45,3 +45,40 @@ export async function enqueue({ queueName, payload, idempotencyKey = null, maxAt
   ]);
   return existing.rows[0];
 }
+
+/**
+ * Retira a tarefa pendente mais antiga de uma fila e a marca como
+ * `em_processamento`, pronta para um worker processar. Retorna `null`
+ * quando não há nenhuma pendente — nunca lança erro por fila vazia.
+ *
+ * Um único UPDATE ... WHERE id = (SELECT ... FOR UPDATE SKIP LOCKED) é
+ * a seleção inteira: a subquery trava a linha escolhida (a mais antiga,
+ * por created_at) e pula qualquer outra já travada por um worker
+ * concorrente, em vez de esperar o lock liberar. Como é uma única
+ * instrução SQL, a seleção e a transição de status já são atômicas por
+ * conta própria — dois workers chamando isso ao mesmo tempo na mesma
+ * fila nunca conseguem travar a mesma linha.
+ */
+export async function dequeue({ queueName }) {
+  const pool = getPool();
+
+  const { rows } = await pool.query(
+    `UPDATE tasks
+        SET status = 'em_processamento',
+            attempts = attempts + 1,
+            updated_at = now()
+      WHERE id = (
+        SELECT id
+          FROM tasks
+         WHERE queue_name = $1
+           AND status = 'pendente'
+         ORDER BY created_at
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *`,
+    [queueName]
+  );
+
+  return rows[0] ?? null;
+}

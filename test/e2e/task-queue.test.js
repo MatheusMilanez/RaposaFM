@@ -11,6 +11,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 let container;
 let closePool;
 let enqueue;
+let dequeue;
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -22,7 +23,7 @@ beforeAll(async () => {
   const { runMigrations } = await import('../../src/db/migrate.js');
   await runMigrations('up');
 
-  ({ enqueue } = await import('../../src/db/taskQueue.js'));
+  ({ enqueue, dequeue } = await import('../../src/db/taskQueue.js'));
   ({ closePool } = await import('../../src/shared/db.js'));
 }, 60000);
 
@@ -90,5 +91,63 @@ describe('enqueue (#45)', () => {
 
     const uniqueIds = new Set(results.map((task) => task.id));
     expect(uniqueIds.size).toBe(1);
+  });
+});
+
+describe('dequeue (#46)', () => {
+  test('retorna null quando não há tarefa pendente na fila', async () => {
+    const task = await dequeue({ queueName: 'fila-vazia' });
+
+    expect(task).toBeNull();
+  });
+
+  test('captura a tarefa pendente mais antiga da fila (FIFO) e transiciona o status', async () => {
+    const first = await enqueue({ queueName: 'fila-e', payload: { ordem: 1 } });
+    const second = await enqueue({ queueName: 'fila-e', payload: { ordem: 2 } });
+
+    const captured = await dequeue({ queueName: 'fila-e' });
+
+    expect(captured.id).toBe(first.id);
+    expect(captured.status).toBe('em_processamento');
+    expect(captured.attempts).toBe(1);
+    expect(new Date(captured.updated_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(captured.created_at).getTime()
+    );
+
+    const captured2 = await dequeue({ queueName: 'fila-e' });
+    expect(captured2.id).toBe(second.id);
+  });
+
+  test('não retorna tarefa de outra fila nem uma já capturada', async () => {
+    await enqueue({ queueName: 'fila-f', payload: { n: 1 } });
+
+    const outraFila = await dequeue({ queueName: 'fila-g' });
+    expect(outraFila).toBeNull();
+
+    const primeira = await dequeue({ queueName: 'fila-f' });
+    expect(primeira).not.toBeNull();
+
+    const segunda = await dequeue({ queueName: 'fila-f' });
+    expect(segunda).toBeNull(); // já foi capturada, não está mais pendente
+  });
+
+  test('chamadas concorrentes na mesma fila nunca capturam a mesma tarefa (SKIP LOCKED)', async () => {
+    const N = 10;
+    const tasks = [];
+    for (let i = 0; i < N; i++) {
+      tasks.push(await enqueue({ queueName: 'fila-h', payload: { i } }));
+    }
+
+    const results = await Promise.all(
+      Array.from({ length: N }, () => dequeue({ queueName: 'fila-h' }))
+    );
+
+    expect(results.every((task) => task !== null)).toBe(true);
+    const capturedIds = new Set(results.map((task) => task.id));
+    expect(capturedIds.size).toBe(N);
+    expect(capturedIds).toEqual(new Set(tasks.map((task) => task.id)));
+
+    // fila esgotada: uma chamada a mais não encontra nada pendente nem duplicado
+    expect(await dequeue({ queueName: 'fila-h' })).toBeNull();
   });
 });
