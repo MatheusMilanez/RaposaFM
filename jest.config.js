@@ -24,6 +24,13 @@ export default {
     // (prefetch/consume/cancel) fica de fora, coberto pelo e2e.
     'src/shared/amqp.js',
     'src/api/publisher.js',
+    // Mesmo raciocínio, agora para o PostgreSQL (M9): pool real (db.js),
+    // runner de migração e motor de tarefas (taskQueue.js) só fazem
+    // sentido testados contra um banco de verdade — coberto pelo e2e com
+    // Testcontainers (test/e2e/db-schema.test.js, test/e2e/task-queue.test.js).
+    'src/shared/db.js',
+    'src/db/migrate.js',
+    'src/db/taskQueue.js',
   ],
   coverageThreshold: {
     global: {

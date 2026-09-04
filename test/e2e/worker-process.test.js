@@ -80,6 +80,9 @@ function runWorkerContainer(name, { httpTimeoutMs = 5000 } = {}) {
     `docker run -d --name ${name} ` +
       `--add-host host.docker.internal:host-gateway ` +
       `-e RABBITMQ_URL=${rabbitmqUrlFromContainer} ` +
+      // shared/config.js exige DATABASE_URL mesmo aqui, que não usa
+      // Postgres — nunca é discada de fato, só precisa existir.
+      `-e DATABASE_URL=postgres://test:test@host.docker.internal:5432/test ` +
       `-e RETRY_BACKOFF_MS=1000,2000 ` +
       `-e MAX_RETRIES=3 ` +
       `-e HTTP_TIMEOUT_MS=${httpTimeoutMs} ` +
