@@ -103,6 +103,7 @@ beforeAll(async () => {
   rabbitmqUrlFromContainer = `amqp://raposafm:changeme@host.docker.internal:${RABBIT_HOST_PORT}`;
 
   process.env.RABBITMQ_URL = rabbitmqUrlFromHost;
+  process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
   process.env.ALLOW_PRIVATE_NETWORK_URLS = 'true';
 
   ({ getChannel, closeAmqp, startAmqp, isAmqpConnected } =

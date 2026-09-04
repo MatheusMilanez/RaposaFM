@@ -5,6 +5,7 @@
 // carregarem. Os valores de retry são pequenos e determinísticos de
 // propósito, para as asserções de tempo dos testes unitários.
 process.env.RABBITMQ_URL ??= 'amqp://test:test@localhost:5672/';
+process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
 process.env.API_PORT ??= '0';
 process.env.WORKER_PREFETCH ??= '10';
 // 5 (não 3) de propósito: maior que o tamanho da escada de backoff abaixo,

@@ -44,6 +44,7 @@ beforeAll(async () => {
   container = await new RabbitMQContainer('rabbitmq:3-management').start();
 
   process.env.RABBITMQ_URL = container.getAmqpUrl();
+  process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
   process.env.HTTP_TIMEOUT_MS = '5000';
   process.env.WORKER_PREFETCH = '2'; // baixo de propósito, é o que este teste mede
   process.env.ALLOW_PRIVATE_NETWORK_URLS = 'true';

@@ -51,6 +51,7 @@ function optionalBool(name, fallback) {
 
 export const config = Object.freeze({
   rabbitmqUrl: required('RABBITMQ_URL'),
+  databaseUrl: required('DATABASE_URL'),
   api: Object.freeze({
     port: optionalInt('API_PORT', 3000),
   }),

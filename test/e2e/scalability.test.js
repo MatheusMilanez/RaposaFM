@@ -97,6 +97,7 @@ beforeAll(async () => {
   rabbitmqUrl = container.getAmqpUrl();
 
   process.env.RABBITMQ_URL = rabbitmqUrl;
+  process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
   process.env.ALLOW_PRIVATE_NETWORK_URLS = 'true';
   ({ publishWebhook } = await import('../../src/api/publisher.js'));
   const { startAmqp, isAmqpConnected } = await import('../../src/shared/amqp.js');

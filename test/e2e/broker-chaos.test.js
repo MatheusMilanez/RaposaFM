@@ -70,6 +70,7 @@ beforeAll(async () => {
   );
 
   process.env.RABBITMQ_URL = `amqp://raposafm:changeme@localhost:${HOST_PORT}`;
+  process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
   process.env.RETRY_BACKOFF_MS = '1000,2000';
   process.env.MAX_RETRIES = '3';
   process.env.HTTP_TIMEOUT_MS = '2000';
